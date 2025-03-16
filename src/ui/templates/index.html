@@ -1,0 +1,32 @@
+{% extends "base.html" %} {% block content %}
+<div class="jumbotron">
+  <h1 class="display-4">欢迎使用BUG知识库系统</h1>
+  <p class="lead">
+    这是一个基于RAG技术的BUG知识库系统，支持存储和检索BUG相关信息。
+  </p>
+  <hr class="my-4" />
+  <p>您可以：</p>
+  <div class="row">
+    <div class="col-md-6">
+      <div class="card mb-4">
+        <div class="card-body">
+          <h5 class="card-title">添加BUG报告</h5>
+          <p class="card-text">
+            记录新的BUG信息，包括问题描述、代码、错误日志等。
+          </p>
+          <a href="/add" class="btn btn-primary">添加BUG</a>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-6">
+      <div class="card mb-4">
+        <div class="card-body">
+          <h5 class="card-title">搜索BUG</h5>
+          <p class="card-text">搜索已有的BUG记录，查找解决方案。</p>
+          <a href="/search" class="btn btn-primary">搜索</a>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,204 @@
+{% extends "base.html" %} {% block title %}添加BUG - {{ super() }}{% endblock %}
+{% block content %}
+<h2>添加BUG报告</h2>
+<form id="bugForm" class="needs-validation" novalidate>
+  <div class="row">
+    <div class="col-md-6 mb-3">
+      <label for="title" class="form-label">Bug标题</label>
+      <input
+        type="text"
+        class="form-control"
+        id="title"
+        name="title"
+        required
+      />
+    </div>
+    <div class="col-md-6 mb-3">
+      <label for="reproducible" class="form-label">是否可复现</label>
+      <select
+        class="form-select"
+        id="reproducible"
+        name="reproducible"
+        required
+      >
+        <option value="true">是</option>
+        <option value="false">否</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="mb-3">
+    <label for="description" class="form-label">问题描述</label>
+    <textarea
+      class="form-control"
+      id="description"
+      name="description"
+      rows="3"
+      required
+    ></textarea>
+  </div>
+
+  <div class="mb-3">
+    <label for="steps" class="form-label">重现步骤（每行一个步骤）</label>
+    <textarea
+      class="form-control"
+      id="steps"
+      name="steps"
+      rows="3"
+      required
+    ></textarea>
+  </div>
+
+  <div class="row">
+    <div class="col-md-6 mb-3">
+      <label for="expected_behavior" class="form-label">期望行为</label>
+      <textarea
+        class="form-control"
+        id="expected_behavior"
+        name="expected_behavior"
+        rows="2"
+        required
+      ></textarea>
+    </div>
+    <div class="col-md-6 mb-3">
+      <label for="actual_behavior" class="form-label">实际行为</label>
+      <textarea
+        class="form-control"
+        id="actual_behavior"
+        name="actual_behavior"
+        rows="2"
+        required
+      ></textarea>
+    </div>
+  </div>
+
+  <div class="mb-3">
+    <label for="code" class="form-label">问题代码</label>
+    <textarea
+      class="form-control"
+      id="code"
+      name="code"
+      rows="5"
+      required
+    ></textarea>
+  </div>
+
+  <div class="row">
+    <div class="col-md-4 mb-3">
+      <label for="file_path" class="form-label">文件路径</label>
+      <input
+        type="text"
+        class="form-control"
+        id="file_path"
+        name="file_path"
+        required
+      />
+    </div>
+    <div class="col-md-4 mb-3">
+      <label for="line_start" class="form-label">起始行号</label>
+      <input
+        type="number"
+        class="form-control"
+        id="line_start"
+        name="line_start"
+        required
+      />
+    </div>
+    <div class="col-md-4 mb-3">
+      <label for="line_end" class="form-label">结束行号</label>
+      <input
+        type="number"
+        class="form-control"
+        id="line_end"
+        name="line_end"
+        required
+      />
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="col-md-4 mb-3">
+      <label for="language" class="form-label">编程语言</label>
+      <input
+        type="text"
+        class="form-control"
+        id="language"
+        name="language"
+        required
+      />
+    </div>
+    <div class="col-md-4 mb-3">
+      <label for="runtime_env" class="form-label">运行时环境</label>
+      <input
+        type="text"
+        class="form-control"
+        id="runtime_env"
+        name="runtime_env"
+        required
+      />
+    </div>
+    <div class="col-md-4 mb-3">
+      <label for="os_info" class="form-label">操作系统信息</label>
+      <input
+        type="text"
+        class="form-control"
+        id="os_info"
+        name="os_info"
+        required
+      />
+    </div>
+  </div>
+
+  <div class="mb-3">
+    <label for="network_env" class="form-label">网络环境（可选）</label>
+    <input
+      type="text"
+      class="form-control"
+      id="network_env"
+      name="network_env"
+    />
+  </div>
+
+  <div class="mb-3">
+    <label for="error_logs" class="form-label">错误日志</label>
+    <textarea
+      class="form-control"
+      id="error_logs"
+      name="error_logs"
+      rows="3"
+      required
+    ></textarea>
+  </div>
+
+  <button type="submit" class="btn btn-primary">提交</button>
+</form>
+{% endblock %} {% block scripts %}
+<script>
+  document
+    .getElementById("bugForm")
+    .addEventListener("submit", async function (e) {
+      e.preventDefault();
+
+      const formData = new FormData(this);
+
+      try {
+        const response = await fetch("/add", {
+          method: "POST",
+          body: formData,
+        });
+
+        const result = await response.json();
+
+        if (result.status === "success") {
+          alert(`BUG报告添加成功！ID: ${result.bug_id}`);
+          window.location.href = "/";
+        } else {
+          alert("添加失败，请重试");
+        }
+      } catch (error) {
+        console.error("Error:", error);
+        alert("发生错误，请重试");
+      }
+    });
+</script>
+{% endblock %}
