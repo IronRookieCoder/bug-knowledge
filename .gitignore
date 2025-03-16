@@ -1,1 +1,24 @@
-/venv
+# 虚拟环境
+venv/
+.venv/
+env/
+
+# 编译缓存
+__pycache__/
+*.py[cod]
+
+# IDE配置
+.idea/
+.vscode/
+.DS_Store  # macOS临时文件
+
+# 本地环境变量
+.env
+.env.local
+
+# 构建产物
+dist/
+build/
+*.egg-info/
+
+lm-models/

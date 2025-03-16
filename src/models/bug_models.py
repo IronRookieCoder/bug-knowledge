@@ -1,11 +1,11 @@
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Tuple
 from pydantic import BaseModel, Field
 from datetime import datetime
 
 class CodeContext(BaseModel):
     code: str = Field(..., description="问题代码")
     file_path: str = Field(..., description="文件路径")
-    line_range: tuple[int, int] = Field(..., description="行号范围")
+    line_range: Tuple[int, int] = Field(..., description="行号范围")
     language: str = Field(..., description="编程语言")
     dependencies: Dict[str, str] = Field(default_factory=dict, description="项目依赖")
     diff: Optional[str] = Field(None, description="diff格式的变更")

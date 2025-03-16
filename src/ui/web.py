@@ -6,6 +6,10 @@ import uvicorn
 from typing import List, Optional
 import uuid
 from datetime import datetime
+import logging
+import webbrowser
+import threading
+import time
 
 from src.models.bug_models import BugReport, CodeContext, EnvironmentInfo
 from src.retrieval.searcher import BugSearcher
@@ -15,6 +19,11 @@ templates = Jinja2Templates(directory="src/ui/templates")
 app.mount("/static", StaticFiles(directory="src/ui/static"), name="static")
 
 bug_searcher = BugSearcher()
+
+def open_browser():
+    """等待服务器启动后打开浏览器"""
+    time.sleep(2)  # 等待服务器完全启动
+    webbrowser.open("http://localhost:8000")
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
@@ -93,4 +102,20 @@ async def search_bugs(
     return {"results": results}
 
 def main():
-    uvicorn.run("src.ui.web:app", host="0.0.0.0", port=8000, reload=True) 
+    logger = logging.getLogger(__name__)
+    logger.info("正在启动 Web 服务器...")
+    
+    # 创建打开浏览器的线程
+    threading.Thread(target=open_browser, daemon=True).start()
+    
+    try:
+        uvicorn.run(
+            "src.ui.web:app",
+            host="0.0.0.0",
+            port=8000,
+            log_level="info",
+            reload=False  # 禁用热重载以避免 Windows 上的问题
+        )
+    except Exception as e:
+        logger.error(f"Web 服务器启动失败: {str(e)}")
+        raise 
