@@ -1,116 +1,268 @@
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple
 import json
 import os
 from annoy import AnnoyIndex
 from src.models.bug_models import BugReport
+from datetime import datetime
+import numpy as np
+import logging
+from pathlib import Path
+import tempfile
+import shutil
+import traceback
+
+logger = logging.getLogger(__name__)
 
 class VectorStore:
-    def __init__(self, data_dir: str = "data/annoy"):
-        self.data_dir = data_dir
-        os.makedirs(data_dir, exist_ok=True)
-        
-        # 存储BUG报告的元数据
-        self.metadata_file = os.path.join(data_dir, "metadata.json")
-        self.metadata = self._load_metadata()
-        
-        # 初始化向量索引
-        self.vector_dim = 384  # sentence-transformers默认维度
-        self.question_index = self._create_or_load_index("question")
-        self.code_index = self._create_or_load_index("code")
-        self.log_index = self._create_or_load_index("log")
-        self.env_index = self._create_or_load_index("env")
+    def __init__(self, data_dir="data/annoy"):
+        try:
+            # 使用绝对路径并确保使用正斜杠
+            self.data_dir = os.path.abspath(data_dir).replace('\\', '/')
+            os.makedirs(self.data_dir, exist_ok=True)
+            
+            self.metadata_file = os.path.join(self.data_dir, "metadata.json").replace('\\', '/')
+            self.metadata = self._load_metadata()
+            
+            # 初始化索引
+            self.question_index = None
+            self.code_index = None
+            self.log_index = None
+            self.env_index = None
+            
+            self._load_existing_indices()
+            logger.info(f"向量存储初始化成功: {self.data_dir}")
+        except Exception as e:
+            logger.error(f"向量存储初始化失败: {str(e)}")
+            logger.error(f"错误堆栈: {traceback.format_exc()}")
+            raise RuntimeError(f"向量存储初始化失败: {str(e)}")
     
-    def _load_metadata(self) -> Dict:
-        if os.path.exists(self.metadata_file):
+    def _load_metadata(self):
+        if not os.path.exists(self.metadata_file):
+            logger.warning(f"元数据文件不存在，创建新文件: {self.metadata_file}")
+            return {"questions": [], "codes": [], "logs": [], "envs": []}
+        
+        try:
             with open(self.metadata_file, 'r', encoding='utf-8') as f:
                 return json.load(f)
-        return {}
+        except Exception as e:
+            logger.warning(f"元数据文件损坏，创建新文件: {self.metadata_file}")
+            return {"questions": [], "codes": [], "logs": [], "envs": []}
     
     def _save_metadata(self):
-        with open(self.metadata_file, 'w', encoding='utf-8') as f:
-            json.dump(self.metadata, f, ensure_ascii=False, indent=2)
+        try:
+            with open(self.metadata_file, 'w', encoding='utf-8') as f:
+                json.dump(self.metadata, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            logger.error(f"保存元数据失败: {str(e)}")
+            logger.error(f"错误堆栈: {traceback.format_exc()}")
+            raise RuntimeError(f"保存元数据失败: {str(e)}")
     
-    def _create_or_load_index(self, name: str) -> AnnoyIndex:
-        index = AnnoyIndex(self.vector_dim, 'angular')
-        index_file = os.path.join(self.data_dir, f"{name}.ann")
-        if os.path.exists(index_file):
-            index.load(index_file)
-        return index
-    
-    def add_bug_report(self, bug_report: BugReport, vectors: Dict[str, List[float]]):
-        # 获取当前索引大小作为新ID
-        idx = len(self.metadata)
-        
-        # 添加向量到索引
-        self.question_index.add_item(idx, vectors["question_vector"])
-        self.code_index.add_item(idx, vectors["code_vector"])
-        self.log_index.add_item(idx, vectors["log_vector"])
-        self.env_index.add_item(idx, vectors["env_vector"])
-        
-        # 保存元数据
-        self.metadata[str(idx)] = bug_report.model_dump()
-        
-        # 保存索引和元数据
-        self._save_indices()
-        self._save_metadata()
-    
-    def _save_indices(self):
-        self.question_index.build(10)  # 10棵树
-        self.code_index.build(10)
-        self.log_index.build(10)
-        self.env_index.build(10)
-        
-        self.question_index.save(os.path.join(self.data_dir, "question.ann"))
-        self.code_index.save(os.path.join(self.data_dir, "code.ann"))
-        self.log_index.save(os.path.join(self.data_dir, "log.ann"))
-        self.env_index.save(os.path.join(self.data_dir, "env.ann"))
-    
-    def search(self, 
-              query_vectors: Dict[str, List[float]], 
-              n_results: int = 5,
-              weights: Optional[Dict[str, float]] = None) -> List[Dict]:
-        if weights is None:
-            weights = {
-                "question": 0.4,
-                "code": 0.3,
-                "log": 0.2,
-                "env": 0.1
-            }
-        
-        # 获取每个向量的最近邻
-        question_nns = self.question_index.get_nns_by_vector(query_vectors["question_vector"], n_results, include_distances=True)
-        code_nns = self.code_index.get_nns_by_vector(query_vectors["code_vector"], n_results, include_distances=True)
-        log_nns = self.log_index.get_nns_by_vector(query_vectors["log_vector"], n_results, include_distances=True)
-        env_nns = self.env_index.get_nns_by_vector(query_vectors["env_vector"], n_results, include_distances=True)
-        
-        # 合并结果
-        results = {}
-        for idx, dist in zip(*question_nns):
-            results[idx] = {"distance": dist * weights["question"]}
+    def _load_existing_indices(self):
+        try:
+            indices_dir = os.path.join(self.data_dir, "indices").replace('\\', '/')
+            if not os.path.exists(indices_dir):
+                logger.info("索引目录不存在，跳过加载")
+                return
             
-        for idx, dist in zip(*code_nns):
-            if idx in results:
-                results[idx]["distance"] += dist * weights["code"]
-            else:
-                results[idx] = {"distance": dist * weights["code"]}
-                
-        for idx, dist in zip(*log_nns):
-            if idx in results:
-                results[idx]["distance"] += dist * weights["log"]
-            else:
-                results[idx] = {"distance": dist * weights["log"]}
-                
-        for idx, dist in zip(*env_nns):
-            if idx in results:
-                results[idx]["distance"] += dist * weights["env"]
-            else:
-                results[idx] = {"distance": dist * weights["env"]}
-        
-        # 排序并返回结果
-        sorted_results = []
-        for idx, score in sorted(results.items(), key=lambda x: x[1]["distance"])[:n_results]:
-            result = self.metadata[str(idx)].copy()
-            result["distance"] = score["distance"]
-            sorted_results.append(result)
-        
-        return sorted_results 
+            # 加载向量
+            question_vectors = np.load(os.path.join(indices_dir, "question.npy"))
+            code_vectors = np.load(os.path.join(indices_dir, "code.npy"))
+            log_vectors = np.load(os.path.join(indices_dir, "log.npy"))
+            env_vectors = np.load(os.path.join(indices_dir, "env.npy"))
+            
+            # 创建索引
+            self.question_index = AnnoyIndex(384, 'angular')
+            self.code_index = AnnoyIndex(384, 'angular')
+            self.log_index = AnnoyIndex(384, 'angular')
+            self.env_index = AnnoyIndex(384, 'angular')
+            
+            # 添加向量
+            for i, vector in enumerate(question_vectors):
+                self.question_index.add_item(i, vector)
+            for i, vector in enumerate(code_vectors):
+                self.code_index.add_item(i, vector)
+            for i, vector in enumerate(log_vectors):
+                self.log_index.add_item(i, vector)
+            for i, vector in enumerate(env_vectors):
+                self.env_index.add_item(i, vector)
+            
+            # 构建索引
+            self.question_index.build(10)
+            self.code_index.build(10)
+            self.log_index.build(10)
+            self.env_index.build(10)
+            
+            logger.info("成功加载现有索引")
+        except Exception as e:
+            logger.error(f"加载索引失败: {str(e)}")
+            logger.error(f"错误堆栈: {traceback.format_exc()}")
+            raise RuntimeError(f"加载索引失败: {str(e)}")
+    
+    def add_bug_report(self, bug_report, vectors):
+        try:
+            # 创建新的索引
+            new_question_index = AnnoyIndex(384, 'angular')
+            new_code_index = AnnoyIndex(384, 'angular')
+            new_log_index = AnnoyIndex(384, 'angular')
+            new_env_index = AnnoyIndex(384, 'angular')
+            
+            # 收集所有向量
+            question_vectors = []
+            code_vectors = []
+            log_vectors = []
+            env_vectors = []
+            
+            # 复制现有项目
+            if self.question_index:
+                for i in range(len(self.metadata["questions"])):
+                    vector = self.question_index.get_item_vector(i)
+                    question_vectors.append(vector)
+                    new_question_index.add_item(i, vector)
+            
+            if self.code_index:
+                for i in range(len(self.metadata["codes"])):
+                    vector = self.code_index.get_item_vector(i)
+                    code_vectors.append(vector)
+                    new_code_index.add_item(i, vector)
+            
+            if self.log_index:
+                for i in range(len(self.metadata["logs"])):
+                    vector = self.log_index.get_item_vector(i)
+                    log_vectors.append(vector)
+                    new_log_index.add_item(i, vector)
+            
+            if self.env_index:
+                for i in range(len(self.metadata["envs"])):
+                    vector = self.env_index.get_item_vector(i)
+                    env_vectors.append(vector)
+                    new_env_index.add_item(i, vector)
+            
+            # 添加新项目
+            question_vectors.append(vectors["question_vector"])
+            code_vectors.append(vectors["code_vector"])
+            log_vectors.append(vectors["log_vector"])
+            env_vectors.append(vectors["env_vector"])
+            
+            new_question_index.add_item(len(question_vectors) - 1, vectors["question_vector"])
+            new_code_index.add_item(len(code_vectors) - 1, vectors["code_vector"])
+            new_log_index.add_item(len(log_vectors) - 1, vectors["log_vector"])
+            new_env_index.add_item(len(env_vectors) - 1, vectors["env_vector"])
+            
+            # 构建索引
+            new_question_index.build(10)
+            new_code_index.build(10)
+            new_log_index.build(10)
+            new_env_index.build(10)
+            
+            # 确保索引目录存在
+            indices_dir = os.path.join(self.data_dir, "indices").replace('\\', '/')
+            os.makedirs(indices_dir, exist_ok=True)
+            
+            # 保存向量
+            question_index_path = os.path.join(indices_dir, "question.npy").replace('\\', '/')
+            code_index_path = os.path.join(indices_dir, "code.npy").replace('\\', '/')
+            log_index_path = os.path.join(indices_dir, "log.npy").replace('\\', '/')
+            env_index_path = os.path.join(indices_dir, "env.npy").replace('\\', '/')
+            
+            logger.info(f"保存向量到: {question_index_path}")
+            np.save(question_index_path, np.array(question_vectors))
+            np.save(code_index_path, np.array(code_vectors))
+            np.save(log_index_path, np.array(log_vectors))
+            np.save(env_index_path, np.array(env_vectors))
+            
+            # 更新元数据
+            self.metadata["questions"].append({
+                "id": bug_report.id,
+                "title": bug_report.title,
+                "description": bug_report.description
+            })
+            
+            self.metadata["codes"].append({
+                "id": bug_report.id,
+                "code": bug_report.code_context.code
+            })
+            
+            self.metadata["logs"].append({
+                "id": bug_report.id,
+                "log": bug_report.error_logs
+            })
+            
+            self.metadata["envs"].append({
+                "id": bug_report.id,
+                "env": str(bug_report.environment)
+            })
+            
+            self._save_metadata()
+            
+            # 更新当前索引
+            self.question_index = new_question_index
+            self.code_index = new_code_index
+            self.log_index = new_log_index
+            self.env_index = new_env_index
+            
+            logger.info(f"成功添加Bug报告: {bug_report.id}")
+        except Exception as e:
+            logger.error(f"添加Bug报告失败: {str(e)}")
+            logger.error(f"错误堆栈: {traceback.format_exc()}")
+            raise RuntimeError(f"添加Bug报告失败: {str(e)}")
+    
+    def search(self, query_vectors, n_results=5, weights=None):
+        try:
+            if weights is None:
+                weights = {
+                    "question": 1.0,
+                    "code": 1.0,
+                    "log": 1.0,
+                    "env": 1.0
+                }
+            
+            if not self.question_index:
+                logger.warning("索引为空，无法搜索")
+                return []
+            
+            # 获取每个向量的最近邻
+            question_neighbors = self.question_index.get_nns_by_vector(
+                query_vectors["question_vector"], n_results, include_distances=True)
+            code_neighbors = self.code_index.get_nns_by_vector(
+                query_vectors["code_vector"], n_results, include_distances=True)
+            log_neighbors = self.log_index.get_nns_by_vector(
+                query_vectors["log_vector"], n_results, include_distances=True)
+            env_neighbors = self.env_index.get_nns_by_vector(
+                query_vectors["env_vector"], n_results, include_distances=True)
+            
+            # 合并结果
+            results = {}
+            for i, (idx, dist) in enumerate(zip(question_neighbors[0], question_neighbors[1])):
+                results[idx] = {"distance": dist * weights["question"]}
+            
+            for i, (idx, dist) in enumerate(zip(code_neighbors[0], code_neighbors[1])):
+                if idx in results:
+                    results[idx]["distance"] += dist * weights["code"]
+                else:
+                    results[idx] = {"distance": dist * weights["code"]}
+            
+            for i, (idx, dist) in enumerate(zip(log_neighbors[0], log_neighbors[1])):
+                if idx in results:
+                    results[idx]["distance"] += dist * weights["log"]
+                else:
+                    results[idx] = {"distance": dist * weights["log"]}
+            
+            for i, (idx, dist) in enumerate(zip(env_neighbors[0], env_neighbors[1])):
+                if idx in results:
+                    results[idx]["distance"] += dist * weights["env"]
+                else:
+                    results[idx] = {"distance": dist * weights["env"]}
+            
+            # 按距离排序并返回结果
+            sorted_results = []
+            for idx, score in sorted(results.items(), key=lambda x: x[1]["distance"])[:n_results]:
+                result = self.metadata["questions"][idx].copy()
+                result["distance"] = score["distance"]
+                sorted_results.append(result)
+            
+            logger.info(f"搜索完成，找到 {len(sorted_results)} 条结果")
+            return sorted_results
+        except Exception as e:
+            logger.error(f"搜索失败: {str(e)}")
+            logger.error(f"错误堆栈: {traceback.format_exc()}")
+            raise RuntimeError(f"搜索失败: {str(e)}") 

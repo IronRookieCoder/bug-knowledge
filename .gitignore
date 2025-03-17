@@ -22,3 +22,5 @@ build/
 *.egg-info/
 
 lm-models/
+
+data/
