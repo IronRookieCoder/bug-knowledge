@@ -80,6 +80,8 @@
       e.preventDefault();
 
       const formData = new FormData(this);
+      const resultsDiv = document.getElementById("results");
+      const resultsList = document.getElementById("resultsList");
 
       try {
         const response = await fetch("/search", {
@@ -89,13 +91,20 @@
 
         const data = await response.json();
 
-        // 显示结果
-        const resultsDiv = document.getElementById("results");
-        const resultsList = document.getElementById("resultsList");
+        // 显示结果区域
         resultsDiv.classList.remove("d-none");
 
+        if (!response.ok) {
+          throw new Error(data.error || data.detail || "搜索请求失败");
+        }
+
         if (data.results && data.results.length > 0) {
-          resultsList.innerHTML = data.results
+          // 根据相似度排序（distance越小越相似）
+          const sortedResults = data.results.sort(
+            (a, b) => a.distance - b.distance
+          );
+
+          resultsList.innerHTML = sortedResults
             .map(
               (bug) => `
                 <div class="card mb-3">
@@ -126,37 +135,38 @@
                                     <div class="accordion-body">
                                         <h6>重现步骤：</h6>
                                         <ol>
-                                            ${bug.steps_to_reproduce
+                                            ${(bug.steps_to_reproduce || [])
                                               .map((step) => `<li>${step}</li>`)
                                               .join("")}
                                         </ol>
                                         
                                         <h6>期望行为：</h6>
-                                        <p>${bug.expected_behavior}</p>
+                                        <p>${bug.expected_behavior || "无"}</p>
                                         
                                         <h6>实际行为：</h6>
-                                        <p>${bug.actual_behavior}</p>
+                                        <p>${bug.actual_behavior || "无"}</p>
                                         
                                         <h6>问题代码：</h6>
                                         <pre><code>${
-                                          bug.code_context.code
+                                          bug.code_context?.code || "无"
                                         }</code></pre>
                                         
                                         <h6>错误日志：</h6>
                                         <pre><code>${
-                                          bug.error_logs
+                                          bug.error_logs || "无"
                                         }</code></pre>
                                         
                                         <h6>环境信息：</h6>
                                         <ul>
                                             <li>运行时环境：${
-                                              bug.environment.runtime_env
+                                              bug.environment?.runtime_env ||
+                                              "无"
                                             }</li>
                                             <li>操作系统：${
-                                              bug.environment.os_info
+                                              bug.environment?.os_info || "无"
                                             }</li>
                                             ${
-                                              bug.environment.network_env
+                                              bug.environment?.network_env
                                                 ? `<li>网络环境：${bug.environment.network_env}</li>`
                                                 : ""
                                             }
@@ -176,7 +186,15 @@
         }
       } catch (error) {
         console.error("Error:", error);
-        alert("搜索失败，请重试");
+        resultsDiv.classList.remove("d-none");
+        resultsList.innerHTML = `
+          <div class="alert alert-danger">
+            <h5>搜索失败</h5>
+            <p>${error.message}</p>
+            <hr>
+            <p class="mb-0">请检查输入并重试</p>
+          </div>
+        `;
       }
     });
 </script>

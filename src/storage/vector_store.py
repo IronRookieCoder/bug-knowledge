@@ -209,11 +209,12 @@ class VectorStore:
     def search(self, query_vectors, n_results=5, weights=None):
         try:
             if weights is None:
+                # 调整权重，增加问题描述的权重
                 weights = {
-                    "question": 1.0,
+                    "question": 2.0,  # 增加问题描述的权重
                     "code": 1.0,
-                    "log": 1.0,
-                    "env": 1.0
+                    "log": 0.5,  # 降低日志的权重
+                    "env": 0.3   # 降低环境信息的权重
                 }
             
             if not self.question_index:
@@ -230,34 +231,61 @@ class VectorStore:
             env_neighbors = self.env_index.get_nns_by_vector(
                 query_vectors["env_vector"], n_results, include_distances=True)
             
-            # 合并结果
+            # 计算每个维度的最大距离用于归一化
+            max_distances = {
+                "question": max(question_neighbors[1]) if question_neighbors[1] else 1.0,
+                "code": max(code_neighbors[1]) if code_neighbors[1] else 1.0,
+                "log": max(log_neighbors[1]) if log_neighbors[1] else 1.0,
+                "env": max(env_neighbors[1]) if env_neighbors[1] else 1.0
+            }
+            
+            # 合并结果并进行归一化
             results = {}
+            
+            # 处理问题描述向量
             for i, (idx, dist) in enumerate(zip(question_neighbors[0], question_neighbors[1])):
-                results[idx] = {"distance": dist * weights["question"]}
+                normalized_dist = dist / max_distances["question"]
+                # 使用余弦相似度转换
+                cosine_sim = 1 - (normalized_dist ** 2) / 2
+                results[idx] = {"distance": (1 - cosine_sim) * weights["question"]}
             
+            # 处理代码向量
             for i, (idx, dist) in enumerate(zip(code_neighbors[0], code_neighbors[1])):
+                normalized_dist = dist / max_distances["code"]
+                cosine_sim = 1 - (normalized_dist ** 2) / 2
                 if idx in results:
-                    results[idx]["distance"] += dist * weights["code"]
+                    results[idx]["distance"] += (1 - cosine_sim) * weights["code"]
                 else:
-                    results[idx] = {"distance": dist * weights["code"]}
+                    results[idx] = {"distance": (1 - cosine_sim) * weights["code"]}
             
+            # 处理日志向量
             for i, (idx, dist) in enumerate(zip(log_neighbors[0], log_neighbors[1])):
+                normalized_dist = dist / max_distances["log"]
+                cosine_sim = 1 - (normalized_dist ** 2) / 2
                 if idx in results:
-                    results[idx]["distance"] += dist * weights["log"]
+                    results[idx]["distance"] += (1 - cosine_sim) * weights["log"]
                 else:
-                    results[idx] = {"distance": dist * weights["log"]}
+                    results[idx] = {"distance": (1 - cosine_sim) * weights["log"]}
             
+            # 处理环境向量
             for i, (idx, dist) in enumerate(zip(env_neighbors[0], env_neighbors[1])):
+                normalized_dist = dist / max_distances["env"]
+                cosine_sim = 1 - (normalized_dist ** 2) / 2
                 if idx in results:
-                    results[idx]["distance"] += dist * weights["env"]
+                    results[idx]["distance"] += (1 - cosine_sim) * weights["env"]
                 else:
-                    results[idx] = {"distance": dist * weights["env"]}
+                    results[idx] = {"distance": (1 - cosine_sim) * weights["env"]}
+            
+            # 计算总权重用于归一化最终距离
+            total_weight = sum(weights.values())
             
             # 按距离排序并返回结果
             sorted_results = []
             for idx, score in sorted(results.items(), key=lambda x: x[1]["distance"])[:n_results]:
                 result = self.metadata["questions"][idx].copy()
-                result["distance"] = score["distance"]
+                # 归一化最终距离并转换为相似度分数
+                normalized_distance = score["distance"] / total_weight
+                result["distance"] = normalized_distance
                 sorted_results.append(result)
             
             logger.info(f"搜索完成，找到 {len(sorted_results)} 条结果")

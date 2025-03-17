@@ -134,7 +134,7 @@ def start_web_app(
     config: AppConfig,
     host: str = "127.0.0.1",
     port: int = 8000,
-    reload: bool = False
+    reload: bool = True  # 默认启用热更新
 ):
     """启动Web应用"""
     try:
@@ -162,7 +162,10 @@ def start_web_app(
             app,
             host=host,
             port=port,
-            reload=reload
+            reload=reload,  # 启用热更新
+            reload_dirs=["src"],  # 监视src目录的变化
+            reload_delay=1,  # 延迟1秒后重新加载
+            log_level="info"
         )
     except Exception as e:
         logger.error(f"启动Web应用失败: {str(e)}")
@@ -173,12 +176,15 @@ def main():
     logger.info("正在启动 Web 服务器...")
     
     try:
+        # 初始化BugSearcher
+        bug_searcher = BugSearcher()
+        
         start_web_app(
             bug_searcher,
             AppConfig(),
             host="0.0.0.0",
             port=8000,
-            reload=False  # 禁用热重载以避免 Windows 上的问题
+            reload=True  # 启用热更新
         )
     except Exception as e:
         logger.error(f"Web 服务器启动失败: {str(e)}")
