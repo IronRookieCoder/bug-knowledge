@@ -174,12 +174,24 @@ class VectorStore:
             self.metadata["questions"].append({
                 "id": bug_report.id,
                 "title": bug_report.title,
-                "description": bug_report.description
+                "description": bug_report.description,
+                "reproducible": bug_report.reproducible,
+                "steps_to_reproduce": bug_report.steps_to_reproduce,
+                "expected_behavior": bug_report.expected_behavior,
+                "actual_behavior": bug_report.actual_behavior,
+                "created_at": bug_report.created_at.isoformat(),
+                "updated_at": bug_report.updated_at.isoformat(),
+                "tags": bug_report.tags
             })
             
             self.metadata["codes"].append({
                 "id": bug_report.id,
-                "code": bug_report.code_context.code
+                "code": bug_report.code_context.code,
+                "file_path": bug_report.code_context.file_path,
+                "line_range": bug_report.code_context.line_range,
+                "language": bug_report.code_context.language,
+                "dependencies": bug_report.code_context.dependencies,
+                "diff": bug_report.code_context.diff
             })
             
             self.metadata["logs"].append({
@@ -189,7 +201,10 @@ class VectorStore:
             
             self.metadata["envs"].append({
                 "id": bug_report.id,
-                "env": str(bug_report.environment)
+                "runtime_env": bug_report.environment.runtime_env,
+                "os_info": bug_report.environment.os_info,
+                "network_env": bug_report.environment.network_env,
+                "additional_info": bug_report.environment.additional_info
             })
             
             self._save_metadata()
@@ -211,10 +226,10 @@ class VectorStore:
             if weights is None:
                 # 调整权重，增加问题描述的权重
                 weights = {
-                    "question": 2.0,  # 增加问题描述的权重
+                    "question": 3.0,  # 显著增加问题描述的权重
                     "code": 1.0,
-                    "log": 0.5,  # 降低日志的权重
-                    "env": 0.3   # 降低环境信息的权重
+                    "log": 0.5,
+                    "env": 0.3
                 }
             
             if not self.question_index:
@@ -223,13 +238,13 @@ class VectorStore:
             
             # 获取每个向量的最近邻
             question_neighbors = self.question_index.get_nns_by_vector(
-                query_vectors["question_vector"], n_results, include_distances=True)
+                query_vectors["question_vector"], n_results * 2, include_distances=True)  # 获取更多候选结果
             code_neighbors = self.code_index.get_nns_by_vector(
-                query_vectors["code_vector"], n_results, include_distances=True)
+                query_vectors["code_vector"], n_results * 2, include_distances=True)
             log_neighbors = self.log_index.get_nns_by_vector(
-                query_vectors["log_vector"], n_results, include_distances=True)
+                query_vectors["log_vector"], n_results * 2, include_distances=True)
             env_neighbors = self.env_index.get_nns_by_vector(
-                query_vectors["env_vector"], n_results, include_distances=True)
+                query_vectors["env_vector"], n_results * 2, include_distances=True)
             
             # 计算每个维度的最大距离用于归一化
             max_distances = {
@@ -245,47 +260,82 @@ class VectorStore:
             # 处理问题描述向量
             for i, (idx, dist) in enumerate(zip(question_neighbors[0], question_neighbors[1])):
                 normalized_dist = dist / max_distances["question"]
-                # 使用余弦相似度转换
+                # 使用余弦相似度转换，并应用非线性变换增强差异
                 cosine_sim = 1 - (normalized_dist ** 2) / 2
-                results[idx] = {"distance": (1 - cosine_sim) * weights["question"]}
+                # 应用指数函数增强相似度差异
+                enhanced_sim = np.exp(cosine_sim - 1)
+                results[idx] = {"distance": (1 - enhanced_sim) * weights["question"]}
             
             # 处理代码向量
             for i, (idx, dist) in enumerate(zip(code_neighbors[0], code_neighbors[1])):
                 normalized_dist = dist / max_distances["code"]
                 cosine_sim = 1 - (normalized_dist ** 2) / 2
+                enhanced_sim = np.exp(cosine_sim - 1)
                 if idx in results:
-                    results[idx]["distance"] += (1 - cosine_sim) * weights["code"]
+                    results[idx]["distance"] += (1 - enhanced_sim) * weights["code"]
                 else:
-                    results[idx] = {"distance": (1 - cosine_sim) * weights["code"]}
+                    results[idx] = {"distance": (1 - enhanced_sim) * weights["code"]}
             
             # 处理日志向量
             for i, (idx, dist) in enumerate(zip(log_neighbors[0], log_neighbors[1])):
                 normalized_dist = dist / max_distances["log"]
                 cosine_sim = 1 - (normalized_dist ** 2) / 2
+                enhanced_sim = np.exp(cosine_sim - 1)
                 if idx in results:
-                    results[idx]["distance"] += (1 - cosine_sim) * weights["log"]
+                    results[idx]["distance"] += (1 - enhanced_sim) * weights["log"]
                 else:
-                    results[idx] = {"distance": (1 - cosine_sim) * weights["log"]}
+                    results[idx] = {"distance": (1 - enhanced_sim) * weights["log"]}
             
             # 处理环境向量
             for i, (idx, dist) in enumerate(zip(env_neighbors[0], env_neighbors[1])):
                 normalized_dist = dist / max_distances["env"]
                 cosine_sim = 1 - (normalized_dist ** 2) / 2
+                enhanced_sim = np.exp(cosine_sim - 1)
                 if idx in results:
-                    results[idx]["distance"] += (1 - cosine_sim) * weights["env"]
+                    results[idx]["distance"] += (1 - enhanced_sim) * weights["env"]
                 else:
-                    results[idx] = {"distance": (1 - cosine_sim) * weights["env"]}
+                    results[idx] = {"distance": (1 - enhanced_sim) * weights["env"]}
             
-            # 计算总权重用于归一化最终距离
+            # 计算总权重
             total_weight = sum(weights.values())
             
             # 按距离排序并返回结果
             sorted_results = []
             for idx, score in sorted(results.items(), key=lambda x: x[1]["distance"])[:n_results]:
-                result = self.metadata["questions"][idx].copy()
-                # 归一化最终距离并转换为相似度分数
-                normalized_distance = score["distance"] / total_weight
-                result["distance"] = normalized_distance
+                # 获取完整的 bug 报告信息
+                question_data = self.metadata["questions"][idx]
+                code_data = self.metadata["codes"][idx]
+                env_data = self.metadata["envs"][idx]
+                log_data = self.metadata["logs"][idx]
+                
+                result = {
+                    "id": question_data["id"],
+                    "title": question_data["title"],
+                    "description": question_data["description"],
+                    "reproducible": question_data["reproducible"],
+                    "steps_to_reproduce": question_data["steps_to_reproduce"],
+                    "expected_behavior": question_data["expected_behavior"],
+                    "actual_behavior": question_data["actual_behavior"],
+                    "code_context": {
+                        "code": code_data["code"],
+                        "file_path": code_data["file_path"],
+                        "line_range": code_data["line_range"],
+                        "language": code_data["language"],
+                        "dependencies": code_data["dependencies"],
+                        "diff": code_data["diff"]
+                    },
+                    "error_logs": log_data["log"],
+                    "environment": {
+                        "runtime_env": env_data["runtime_env"],
+                        "os_info": env_data["os_info"],
+                        "network_env": env_data["network_env"],
+                        "additional_info": env_data["additional_info"]
+                    },
+                    "created_at": question_data["created_at"],
+                    "updated_at": question_data["updated_at"],
+                    "tags": question_data["tags"],
+                    "distance": score["distance"] / total_weight  # 归一化距离
+                }
                 sorted_results.append(result)
             
             logger.info(f"搜索完成，找到 {len(sorted_results)} 条结果")

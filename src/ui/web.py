@@ -163,8 +163,11 @@ def start_web_app(
             host=host,
             port=port,
             reload=reload,  # 启用热更新
-            reload_dirs=["src"],  # 监视src目录的变化
+            reload_dirs=["src", "mock"],  # 监视src和mock目录的变化
             reload_delay=1,  # 延迟1秒后重新加载
+            reload_includes=["*.py", "*.html", "*.js", "*.css"],  # 监视的文件类型
+            reload_excludes=["*.pyc", "__pycache__", "*.pyo", "*.pyd"],  # 排除的文件
+            workers=1,  # 单进程模式，确保热重载正常工作
             log_level="info"
         )
     except Exception as e:
