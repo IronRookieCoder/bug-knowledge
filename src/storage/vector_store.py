@@ -10,6 +10,7 @@ from pathlib import Path
 import tempfile
 import shutil
 import traceback
+from src.features.code_features import CodeFeatureExtractor, CodeFeatures
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +29,9 @@ class VectorStore:
             self.code_index = None
             self.log_index = None
             self.env_index = None
+            
+            # 初始化代码特征提取器
+            self.code_feature_extractor = CodeFeatureExtractor()
             
             self._load_existing_indices()
             logger.info(f"向量存储初始化成功: {self.data_dir}")
@@ -100,6 +104,9 @@ class VectorStore:
     
     def add_bug_report(self, bug_report, vectors):
         try:
+            # 提取代码特征
+            code_features = self.code_feature_extractor.extract_features(bug_report.code_context.code)
+            
             # 创建新的索引
             new_question_index = AnnoyIndex(384, 'angular')
             new_code_index = AnnoyIndex(384, 'angular')
@@ -191,7 +198,12 @@ class VectorStore:
                 "line_range": bug_report.code_context.line_range,
                 "language": bug_report.code_context.language,
                 "dependencies": bug_report.code_context.dependencies,
-                "diff": bug_report.code_context.diff
+                "diff": bug_report.code_context.diff,
+                "features": {
+                    "ast": code_features.ast_features,
+                    "symbol": code_features.symbol_features,
+                    "structure": code_features.structure_features
+                }
             })
             
             self.metadata["logs"].append({
@@ -224,9 +236,8 @@ class VectorStore:
     def search(self, query_vectors, n_results=5, weights=None):
         try:
             if weights is None:
-                # 调整权重，增加问题描述的权重
                 weights = {
-                    "question": 3.0,  # 显著增加问题描述的权重
+                    "question": 3.0,
                     "code": 1.0,
                     "log": 0.5,
                     "env": 0.3
@@ -236,111 +247,122 @@ class VectorStore:
                 logger.warning("索引为空，无法搜索")
                 return []
             
-            # 获取每个向量的最近邻
-            question_neighbors = self.question_index.get_nns_by_vector(
-                query_vectors["question_vector"], n_results * 2, include_distances=True)  # 获取更多候选结果
-            code_neighbors = self.code_index.get_nns_by_vector(
-                query_vectors["code_vector"], n_results * 2, include_distances=True)
-            log_neighbors = self.log_index.get_nns_by_vector(
-                query_vectors["log_vector"], n_results * 2, include_distances=True)
-            env_neighbors = self.env_index.get_nns_by_vector(
-                query_vectors["env_vector"], n_results * 2, include_distances=True)
+            # 1. 初筛阶段：文本+代码语义的并行ANN搜索
+            initial_results = self._initial_screening(query_vectors, n_results=200)
             
-            # 计算每个维度的最大距离用于归一化
-            max_distances = {
-                "question": max(question_neighbors[1]) if question_neighbors[1] else 1.0,
-                "code": max(code_neighbors[1]) if code_neighbors[1] else 1.0,
-                "log": max(log_neighbors[1]) if log_neighbors[1] else 1.0,
-                "env": max(env_neighbors[1]) if env_neighbors[1] else 1.0
-            }
+            # 2. 粗排阶段：结构特征快速过滤
+            filtered_results = self._coarse_ranking(initial_results, n_results=50)
             
-            # 合并结果并进行归一化
-            results = {}
+            # 3. 精排阶段：符号匹配+加权得分计算
+            final_results = self._fine_ranking(filtered_results, n_results=n_results)
             
-            # 处理问题描述向量
-            for i, (idx, dist) in enumerate(zip(question_neighbors[0], question_neighbors[1])):
-                normalized_dist = dist / max_distances["question"]
-                # 使用余弦相似度转换，并应用非线性变换增强差异
-                cosine_sim = 1 - (normalized_dist ** 2) / 2
-                # 应用指数函数增强相似度差异
-                enhanced_sim = np.exp(cosine_sim - 1)
-                results[idx] = {"distance": (1 - enhanced_sim) * weights["question"]}
-            
-            # 处理代码向量
-            for i, (idx, dist) in enumerate(zip(code_neighbors[0], code_neighbors[1])):
-                normalized_dist = dist / max_distances["code"]
-                cosine_sim = 1 - (normalized_dist ** 2) / 2
-                enhanced_sim = np.exp(cosine_sim - 1)
-                if idx in results:
-                    results[idx]["distance"] += (1 - enhanced_sim) * weights["code"]
-                else:
-                    results[idx] = {"distance": (1 - enhanced_sim) * weights["code"]}
-            
-            # 处理日志向量
-            for i, (idx, dist) in enumerate(zip(log_neighbors[0], log_neighbors[1])):
-                normalized_dist = dist / max_distances["log"]
-                cosine_sim = 1 - (normalized_dist ** 2) / 2
-                enhanced_sim = np.exp(cosine_sim - 1)
-                if idx in results:
-                    results[idx]["distance"] += (1 - enhanced_sim) * weights["log"]
-                else:
-                    results[idx] = {"distance": (1 - enhanced_sim) * weights["log"]}
-            
-            # 处理环境向量
-            for i, (idx, dist) in enumerate(zip(env_neighbors[0], env_neighbors[1])):
-                normalized_dist = dist / max_distances["env"]
-                cosine_sim = 1 - (normalized_dist ** 2) / 2
-                enhanced_sim = np.exp(cosine_sim - 1)
-                if idx in results:
-                    results[idx]["distance"] += (1 - enhanced_sim) * weights["env"]
-                else:
-                    results[idx] = {"distance": (1 - enhanced_sim) * weights["env"]}
-            
-            # 计算总权重
-            total_weight = sum(weights.values())
-            
-            # 按距离排序并返回结果
-            sorted_results = []
-            for idx, score in sorted(results.items(), key=lambda x: x[1]["distance"])[:n_results]:
-                # 获取完整的 bug 报告信息
-                question_data = self.metadata["questions"][idx]
-                code_data = self.metadata["codes"][idx]
-                env_data = self.metadata["envs"][idx]
-                log_data = self.metadata["logs"][idx]
-                
-                result = {
-                    "id": question_data["id"],
-                    "title": question_data["title"],
-                    "description": question_data["description"],
-                    "reproducible": question_data["reproducible"],
-                    "steps_to_reproduce": question_data["steps_to_reproduce"],
-                    "expected_behavior": question_data["expected_behavior"],
-                    "actual_behavior": question_data["actual_behavior"],
-                    "code_context": {
-                        "code": code_data["code"],
-                        "file_path": code_data["file_path"],
-                        "line_range": code_data["line_range"],
-                        "language": code_data["language"],
-                        "dependencies": code_data["dependencies"],
-                        "diff": code_data["diff"]
-                    },
-                    "error_logs": log_data["log"],
-                    "environment": {
-                        "runtime_env": env_data["runtime_env"],
-                        "os_info": env_data["os_info"],
-                        "network_env": env_data["network_env"],
-                        "additional_info": env_data["additional_info"]
-                    },
-                    "created_at": question_data["created_at"],
-                    "updated_at": question_data["updated_at"],
-                    "tags": question_data["tags"],
-                    "distance": score["distance"] / total_weight  # 归一化距离
-                }
-                sorted_results.append(result)
-            
-            logger.info(f"搜索完成，找到 {len(sorted_results)} 条结果")
-            return sorted_results
+            return final_results
         except Exception as e:
             logger.error(f"搜索失败: {str(e)}")
             logger.error(f"错误堆栈: {traceback.format_exc()}")
-            raise RuntimeError(f"搜索失败: {str(e)}") 
+            raise RuntimeError(f"搜索失败: {str(e)}")
+    
+    def _initial_screening(self, query_vectors, n_results=200):
+        """初筛阶段：文本+代码语义的并行ANN搜索"""
+        # 获取每个向量的最近邻
+        question_neighbors = self.question_index.get_nns_by_vector(
+            query_vectors["question_vector"], n_results, include_distances=True)
+        code_neighbors = self.code_index.get_nns_by_vector(
+            query_vectors["code_vector"], n_results, include_distances=True)
+        
+        # 合并结果
+        results = {}
+        for i, (idx, dist) in enumerate(zip(question_neighbors[0], question_neighbors[1])):
+            results[idx] = {"distance": dist * 0.6}  # 文本相似度权重
+        
+        for i, (idx, dist) in enumerate(zip(code_neighbors[0], code_neighbors[1])):
+            if idx in results:
+                results[idx]["distance"] += dist * 0.4  # 代码语义权重
+            else:
+                results[idx] = {"distance": dist * 0.4}
+        
+        return sorted(results.items(), key=lambda x: x[1]["distance"])[:n_results]
+    
+    def _coarse_ranking(self, initial_results, n_results=50):
+        """粗排阶段：结构特征快速过滤"""
+        filtered_results = []
+        for idx, score in initial_results:
+            code_data = self.metadata["codes"][idx]
+            if "features" in code_data and "structure" in code_data["features"]:
+                structure_features = code_data["features"]["structure"]
+                # 根据结构特征进行过滤
+                if self._is_structure_similar(structure_features):
+                    filtered_results.append((idx, score))
+        
+        return filtered_results[:n_results]
+    
+    def _fine_ranking(self, filtered_results, n_results=10):
+        """精排阶段：符号匹配+加权得分计算"""
+        final_results = []
+        for idx, initial_score in filtered_results:
+            code_data = self.metadata["codes"][idx]
+            if "features" in code_data:
+                features = code_data["features"]
+                # 计算符号匹配度
+                symbol_score = self._calculate_symbol_score(features)
+                # 计算最终得分
+                final_score = initial_score["distance"] * 0.7 + symbol_score * 0.3
+                final_results.append((idx, final_score))
+            else:
+                final_results.append((idx, initial_score["distance"]))
+        
+        # 按得分排序并返回结果
+        sorted_results = []
+        for idx, score in sorted(final_results, key=lambda x: x[1])[:n_results]:
+            # 获取完整的 bug 报告信息
+            question_data = self.metadata["questions"][idx]
+            code_data = self.metadata["codes"][idx]
+            env_data = self.metadata["envs"][idx]
+            log_data = self.metadata["logs"][idx]
+            
+            result = {
+                "id": question_data["id"],
+                "title": question_data["title"],
+                "description": question_data["description"],
+                "reproducible": question_data["reproducible"],
+                "steps_to_reproduce": question_data["steps_to_reproduce"],
+                "expected_behavior": question_data["expected_behavior"],
+                "actual_behavior": question_data["actual_behavior"],
+                "code_context": {
+                    "code": code_data["code"],
+                    "file_path": code_data["file_path"],
+                    "line_range": code_data["line_range"],
+                    "language": code_data["language"],
+                    "dependencies": code_data["dependencies"],
+                    "diff": code_data["diff"]
+                },
+                "error_logs": log_data["log"],
+                "environment": {
+                    "runtime_env": env_data["runtime_env"],
+                    "os_info": env_data["os_info"],
+                    "network_env": env_data["network_env"],
+                    "additional_info": env_data["additional_info"]
+                },
+                "created_at": question_data["created_at"],
+                "updated_at": question_data["updated_at"],
+                "tags": question_data["tags"],
+                "distance": score
+            }
+            sorted_results.append(result)
+        
+        return sorted_results
+    
+    def _is_structure_similar(self, structure_features):
+        """判断结构特征是否相似"""
+        # 这里可以根据具体需求实现结构相似度判断
+        # 例如：检查嵌套深度、控制结构数量等
+        return True
+    
+    def _calculate_symbol_score(self, features):
+        """计算符号匹配度得分"""
+        if "symbol" not in features:
+            return 0.0
+        
+        # 这里可以根据具体需求实现符号匹配度计算
+        # 例如：比较变量名、函数名等
+        return 0.5  # 默认返回中等相似度
