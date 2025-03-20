@@ -65,28 +65,46 @@ class BugSearcher:
         # 查询类型权重配置
         self.query_type_weights = {
             "text_only": {
-                "question": 0.8,
-                "code": 0.1,
+                "question": 0.65,  # 降低纯文本权重，为代码相关性留空间
+                "code": 0.25,     # 增加代码权重，因为问题描述可能暗示代码问题
                 "log": 0.05,
                 "env": 0.05
             },
             "code_only": {
-                "question": 0.1,
-                "code": 0.8,
+                "question": 0.25,  # 增加问题描述权重，因为相似代码可能有相似的问题描述
+                "code": 0.65,     # 保持代码主导但略微降低
                 "log": 0.05,
                 "env": 0.05
             },
             "mixed": {
-                "question": 0.4,
-                "code": 0.4,
-                "log": 0.1,
+                "question": 0.4,   # 稍微提高问题描述权重
+                "code": 0.35,      # 保持较高的代码权重
+                "log": 0.15,
                 "env": 0.1
             },
             "log_only": {
-                "question": 0.1,
-                "code": 0.1,
-                "log": 0.7,
+                "question": 0.15,  # 增加问题描述权重，因为日志通常与问题描述相关
+                "code": 0.15,      # 增加代码权重，因为日志通常指向代码问题
+                "log": 0.6,        # 仍然以日志为主
                 "env": 0.1
+            }
+        }
+        
+        # 相似度阈值配置
+        self.similarity_thresholds = {
+            "text": {
+                "title_boost": 1.2,      # 标题匹配时的提升因子
+                "keyword_weight": 0.3,    # 关键词匹配的权重
+                "semantic_weight": 0.7    # 语义相似度的权重
+            },
+            "code": {
+                "structure_weight": 0.4,  # 代码结构相似度权重
+                "semantic_weight": 0.6    # 代码语义相似度权重
+            },
+            "log": {
+                "exact_match_boost": 1.3, # 精确匹配时的提升因子
+                "pattern_weight": 0.5,    # 错误模式匹配的权重
+                "context_weight": 0.5     # 上下文相似度的权重
             }
         }
     
@@ -141,15 +159,44 @@ class BugSearcher:
             # 获取查询类型对应的权重
             weights = self.query_type_weights[query_type]
             
-            # 执行搜索
-            results = self.vector_store.search(
-                query_vectors=query_vectors,
-                n_results=n_results,
-                weights=weights
-            )
+            # 根据查询类型调整搜索策略
+            if query_type == "text_only":
+                # 增加初始结果数，以便后续过滤
+                initial_results = self.vector_store.search(
+                    query_vectors=query_vectors,
+                    n_results=min(n_results * 3, 200),  # 扩大初始搜索范围
+                    weights=weights
+                )
+                # 对结果进行重新排序，考虑标题匹配度
+                results = self._rerank_text_results(initial_results, query_text, n_results)
+            elif query_type == "code_only":
+                # 使用代码特征进行搜索
+                results = self.vector_store.search(
+                    query_vectors=query_vectors,
+                    n_results=n_results,
+                    weights=weights
+                )
+                # 对结果进行重新排序，考虑代码结构相似度
+                results = self._rerank_code_results(results, code_snippet)
+            elif query_type == "log_only":
+                # 使用日志特征进行搜索
+                results = self.vector_store.search(
+                    query_vectors=query_vectors,
+                    n_results=n_results,
+                    weights=weights
+                )
+                # 对结果进行重新排序，考虑错误模式匹配
+                results = self._rerank_log_results(results, error_log)
+            else:
+                # 混合搜索
+                results = self.vector_store.search(
+                    query_vectors=query_vectors,
+                    n_results=n_results,
+                    weights=weights
+                )
             
             logger.info(f"搜索完成，找到 {len(results)} 条结果")
-            return results
+            return results[:n_results]  # 确保返回指定数量的结果
         except Exception as e:
             logger.error(f"搜索失败: {str(e)}")
             raise
@@ -186,9 +233,119 @@ class BugSearcher:
         # 生成环境信息向量
         env_vector = self.text_encoder.encode(env_info) if env_info else self.text_encoder.encode("")
         
+        # 返回向量和原始查询文本
         return {
             "question_vector": question_vector,
             "code_vector": code_vector,
             "log_vector": log_vector,
-            "env_vector": env_vector
+            "env_vector": env_vector,
+            "query_text": query_text  # 添加原始查询文本
         }
+    
+    def _rerank_text_results(self, results: List[Dict], query_text: str, n_results: int) -> List[Dict]:
+        """重新排序文本搜索结果"""
+        for result in results:
+            # 计算标题匹配得分
+            title_similarity = self._calculate_text_similarity(
+                query_text, 
+                result["title"],
+                self.similarity_thresholds["text"]["title_boost"]
+            )
+            # 更新相似度得分
+            result["distance"] = result["distance"] * 0.7 + (1 - title_similarity) * 0.3
+        
+        # 按更新后的得分重新排序
+        return sorted(results, key=lambda x: x["distance"])[:n_results]
+    
+    def _rerank_code_results(self, results: List[Dict], code_snippet: str) -> List[Dict]:
+        """重新排序代码搜索结果"""
+        for result in results:
+            # 计算代码结构相似度
+            structure_similarity = self._calculate_code_structure_similarity(
+                code_snippet,
+                result["code_context"]["code"]
+            )
+            # 更新相似度得分
+            result["distance"] = result["distance"] * 0.6 + (1 - structure_similarity) * 0.4
+        
+        return sorted(results, key=lambda x: x["distance"])
+    
+    def _rerank_log_results(self, results: List[Dict], error_log: str) -> List[Dict]:
+        """重新排序日志搜索结果"""
+        for result in results:
+            # 计算错误模式匹配度
+            pattern_similarity = self._calculate_log_pattern_similarity(
+                error_log,
+                result["error_logs"]
+            )
+            # 更新相似度得分
+            result["distance"] = result["distance"] * 0.5 + (1 - pattern_similarity) * 0.5
+        
+        return sorted(results, key=lambda x: x["distance"])
+    
+    def _calculate_text_similarity(self, query: str, text: str, boost_factor: float = 1.0) -> float:
+        """计算文本相似度"""
+        # 1. 关键词匹配
+        query_words = set(query.lower().split())
+        text_words = set(text.lower().split())
+        keyword_similarity = len(query_words & text_words) / max(len(query_words), 1)
+        
+        # 2. 语义相似度
+        semantic_similarity = 1 - self.text_encoder.encode(query).dot(self.text_encoder.encode(text))
+        
+        # 3. 组合得分
+        similarity = (
+            self.similarity_thresholds["text"]["keyword_weight"] * keyword_similarity +
+            self.similarity_thresholds["text"]["semantic_weight"] * semantic_similarity
+        ) * boost_factor
+        
+        return min(1.0, similarity)
+    
+    def _calculate_code_structure_similarity(self, query_code: str, target_code: str) -> float:
+        """计算代码结构相似度"""
+        try:
+            # 提取代码特征
+            query_features = self.code_feature_extractor.extract_features(query_code)
+            target_features = self.code_feature_extractor.extract_features(target_code)
+            
+            # 计算结构相似度
+            structure_similarity = self.code_feature_extractor.calculate_similarity(
+                query_features,
+                target_features
+            )
+            
+            return structure_similarity
+        except Exception as e:
+            logger.warning(f"计算代码结构相似度失败: {str(e)}")
+            return 0.0
+    
+    def _calculate_log_pattern_similarity(self, query_log: str, target_log: str) -> float:
+        """计算日志模式相似度"""
+        try:
+            # 1. 提取错误类型和关键信息
+            query_patterns = self._extract_log_patterns(query_log)
+            target_patterns = self._extract_log_patterns(target_log)
+            
+            # 2. 计算模式匹配度
+            pattern_matches = len(set(query_patterns) & set(target_patterns))
+            total_patterns = max(len(query_patterns), 1)
+            
+            return pattern_matches / total_patterns
+        except Exception as e:
+            logger.warning(f"计算日志模式相似度失败: {str(e)}")
+            return 0.0
+    
+    def _extract_log_patterns(self, log: str) -> List[str]:
+        """提取日志中的错误模式"""
+        patterns = []
+        lines = log.split('\n')
+        
+        for line in lines:
+            # 提取错误类型
+            if 'error' in line.lower() or 'exception' in line.lower():
+                patterns.append(line.strip())
+            # 提取关键信息（如行号、文件名等）
+            elif ':' in line and ('at' in line.lower() or 'in' in line.lower()):
+                patterns.append(line.strip())
+        
+        return patterns

@@ -247,6 +247,10 @@ class VectorStore:
                 logger.warning("索引为空，无法搜索")
                 return []
             
+            # 添加原始查询文本到向量字典中
+            if "query_text" in query_vectors:
+                query_vectors = dict(query_vectors)  # 创建副本以避免修改原始数据
+            
             # 1. 初筛阶段：文本+代码语义的并行ANN搜索
             initial_results = self._initial_screening(query_vectors, n_results=200)
             
@@ -281,7 +285,55 @@ class VectorStore:
             else:
                 results[idx] = {"distance": dist * 0.4}
         
+        # 添加关键词匹配得分
+        query_text = query_vectors.get("query_text", "")
+        if query_text:
+            for idx in list(results.keys()):
+                keyword_score = self._calculate_keyword_score(
+                    query_text, 
+                    self.metadata["questions"][idx],
+                    self.metadata["codes"][idx]
+                )
+                # 将关键词匹配得分与向量相似度得分结合
+                results[idx]["distance"] = results[idx]["distance"] * 0.7 + (1 - keyword_score) * 0.3
+        
         return sorted(results.items(), key=lambda x: x[1]["distance"])[:n_results]
+    
+    def _calculate_keyword_score(self, query: str, question_data: Dict, code_data: Dict) -> float:
+        """计算关键词匹配得分
+        
+        Args:
+            query: 查询文本
+            question_data: 问题元数据
+            code_data: 代码元数据
+            
+        Returns:
+            float: 匹配得分 (0-1)
+        """
+        # 对查询文本进行分词
+        keywords = set(query.lower().split())
+        
+        # 准备要搜索的文本
+        title = question_data["title"].lower()
+        description = question_data["description"].lower()
+        code = code_data["code"].lower()
+        
+        # 计算每个关键词的匹配情况
+        matches = 0
+        for keyword in keywords:
+            if keyword in title:
+                matches += 2  # 标题匹配权重更高
+            if keyword in description:
+                matches += 1
+            if keyword in code:
+                matches += 1
+        
+        # 计算最终得分
+        max_possible_matches = len(keywords) * 4  # 每个关键词最多可以得到4分
+        if max_possible_matches == 0:
+            return 0.0
+        
+        return min(1.0, matches / max_possible_matches)
     
     def _coarse_ranking(self, initial_results, n_results=50):
         """粗排阶段：结构特征快速过滤"""
@@ -353,16 +405,157 @@ class VectorStore:
         return sorted_results
     
     def _is_structure_similar(self, structure_features):
-        """判断结构特征是否相似"""
-        # 这里可以根据具体需求实现结构相似度判断
-        # 例如：检查嵌套深度、控制结构数量等
-        return True
+        """判断结构特征是否相似
+        
+        Args:
+            structure_features: 目标代码的结构特征
+            
+        Returns:
+            bool: 是否相似
+        """
+        # 1. 检查控制结构数量是否接近
+        def is_control_count_similar(control_counts: Dict[str, int], threshold: float = 0.5) -> bool:
+            total = sum(control_counts.values())
+            if total == 0:
+                return True
+                
+            # 计算每种控制结构的比例
+            ratios = {k: v/total for k, v in control_counts.items()}
+            
+            # 检查是否有过于主导的控制结构 - 允许更高的阈值
+            return all(ratio <= threshold for ratio in ratios.values())
+        
+        # 2. 检查嵌套深度是否在合理范围
+        def is_depth_reasonable(depth: int, max_depth: int = 8) -> bool:
+            return depth <= max_depth
+        
+        # 3. 检查异常处理是否合理
+        def is_exception_reasonable(handlers: List[Dict]) -> bool:
+            if not handlers:
+                return True
+            
+            # 放宽异常处理的限制
+            if len(handlers) > 8:  # 增加允许的异常处理数量
+                return False
+            
+            # 增加允许的处理器代码行数
+            return all(handler["body_length"] <= 30 for handler in handlers)
+        
+        # 综合判断 - 只要满足两个条件即可
+        conditions = [
+            is_control_count_similar(structure_features["control_structures"]),
+            is_depth_reasonable(structure_features["nesting_depth"]),
+            is_exception_reasonable(structure_features["exception_handlers"])
+        ]
+        
+        return sum(1 for c in conditions if c) >= 2  # 只要满足两个条件即可
     
     def _calculate_symbol_score(self, features):
-        """计算符号匹配度得分"""
+        """计算符号匹配度得分
+        
+        Args:
+            features: 代码特征字典，包含ast、symbol和structure特征
+            
+        Returns:
+            float: 相似度分数 (0-1)
+        """
         if "symbol" not in features:
             return 0.0
         
-        # 这里可以根据具体需求实现符号匹配度计算
-        # 例如：比较变量名、函数名等
-        return 0.5  # 默认返回中等相似度
+        symbol_features = features["symbol"]
+        
+        # 1. 计算变量命名模式的一致性得分
+        def calculate_pattern_score() -> float:
+            patterns = symbol_features["symbol_patterns"]
+            if not patterns:
+                return 0.0
+            
+            # 计算命名模式的分布
+            total = sum(patterns.values())
+            if total == 0:
+                return 0.0
+            
+            pattern_ratios = {k: v/total for k, v in patterns.items()}
+            
+            # 评估命名一致性 - 如果某个模式占比过高说明命名比较一致
+            max_ratio = max(pattern_ratios.values())
+            return min(max_ratio * 2, 1.0)  # 将比例转换为0-1的分数
+        
+        # 2. 计算标识符长度的合理性得分
+        def calculate_length_score() -> float:
+            all_symbols = (
+                symbol_features["variables"] + 
+                symbol_features["functions"] + 
+                symbol_features["classes"]
+            )
+            
+            if not all_symbols:
+                return 0.0
+            
+            # 计算平均标识符长度
+            avg_length = sum(len(s) for s in all_symbols) / len(all_symbols)
+            
+            # 标识符长度在2-30个字符之间比较合理
+            if avg_length < 2:
+                return 0.0
+            elif avg_length > 30:
+                return 0.0
+            elif 2 <= avg_length <= 15:  # 最理想的长度范围
+                return 1.0
+            else:  # 15-30的长度，分数线性下降
+                return max(0, (30 - avg_length) / 15)
+        
+        # 3. 计算命名规范性得分
+        def calculate_convention_score() -> float:
+            def is_snake_case(s: str) -> bool:
+                return s.islower() and "_" in s
+            
+            def is_camel_case(s: str) -> bool:
+                return not s[0].isupper() and not "_" in s and not s.islower()
+            
+            def is_pascal_case(s: str) -> bool:
+                return s[0].isupper() and not "_" in s
+            
+            all_symbols = (
+                symbol_features["variables"] + 
+                symbol_features["functions"] + 
+                symbol_features["classes"]
+            )
+            
+            if not all_symbols:
+                return 0.0
+            
+            # 统计各种命名规范的使用数量
+            conventions = {
+                "snake": sum(1 for s in all_symbols if is_snake_case(s)),
+                "camel": sum(1 for s in all_symbols if is_camel_case(s)),
+                "pascal": sum(1 for s in all_symbols if is_pascal_case(s))
+            }
+            
+            # 计算主导的命名规范的比例
+            total = sum(conventions.values())
+            if total == 0:
+                return 0.0
+            
+            max_convention_ratio = max(conventions.values()) / total
+            return max_convention_ratio
+        
+        # 综合三个维度的得分
+        pattern_score = calculate_pattern_score()
+        length_score = calculate_length_score()
+        convention_score = calculate_convention_score()
+        
+        # 加权平均
+        weights = {
+            "pattern": 0.4,      # 命名模式一致性权重
+            "length": 0.3,       # 标识符长度合理性权重
+            "convention": 0.3    # 命名规范性权重
+        }
+        
+        final_score = (
+            pattern_score * weights["pattern"] +
+            length_score * weights["length"] +
+            convention_score * weights["convention"]
+        )
+        
+        return final_score

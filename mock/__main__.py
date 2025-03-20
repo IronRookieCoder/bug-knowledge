@@ -55,7 +55,10 @@ def main():
             config=config,
             host=args.host,
             port=args.port,
-            reload=args.reload
+            reload=args.reload,
+            reload_dirs=["src", "mock", "templates", "static"],
+            reload_includes=["*.py", "*.html", "*.js", "*.css", "*.json"],
+            reload_excludes=["*.pyc", "__pycache__", "*.pyo", "*.pyd", "*.log"]
         )
 
 if __name__ == "__main__":

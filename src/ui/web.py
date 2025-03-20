@@ -12,6 +12,13 @@ import threading
 import time
 import socket
 import traceback
+import os
+import pickle
+import base64
+import tempfile
+import json
+import shutil
+from annoy import AnnoyIndex
 
 from src.models.bug_models import BugReport, CodeContext, EnvironmentInfo
 from src.retrieval.searcher import BugSearcher
@@ -134,11 +141,53 @@ def start_web_app(
     config: AppConfig,
     host: str = "127.0.0.1",
     port: int = 8000,
-    reload: bool = True  # 默认启用热更新
+    reload: bool = True,  # 默认启用热更新
+    reload_dirs: List[str] = None,  # 添加监视目录参数
+    reload_includes: List[str] = None,  # 添加监视文件类型参数
+    reload_excludes: List[str] = None  # 添加排除文件类型参数
 ):
-    """启动Web应用"""
+    """启动Web应用
+    
+    Args:
+        searcher: BugSearcher实例
+        config: 应用配置
+        host: 服务器主机地址
+        port: 服务器端口
+        reload: 是否启用热更新
+        reload_dirs: 要监视的目录列表
+        reload_includes: 要监视的文件类型列表
+        reload_excludes: 要排除的文件类型列表
+    """
     try:
-        app = create_web_app(searcher, config)
+        # 创建临时目录
+        temp_dir = tempfile.mkdtemp(prefix='bug_knowledge_')
+        
+        # 保存向量存储的状态
+        vector_store = searcher.vector_store
+        indices_dir = os.path.join(temp_dir, "indices")
+        os.makedirs(indices_dir, exist_ok=True)
+        
+        # 保存索引文件
+        if vector_store.question_index:
+            vector_store.question_index.save(os.path.join(indices_dir, "question.ann"))
+        if vector_store.code_index:
+            vector_store.code_index.save(os.path.join(indices_dir, "code.ann"))
+        if vector_store.log_index:
+            vector_store.log_index.save(os.path.join(indices_dir, "log.ann"))
+        if vector_store.env_index:
+            vector_store.env_index.save(os.path.join(indices_dir, "env.ann"))
+        
+        # 保存元数据
+        with open(os.path.join(temp_dir, "metadata.json"), 'w', encoding='utf-8') as f:
+            json.dump(vector_store.metadata, f, ensure_ascii=False, indent=2)
+        
+        # 保存配置
+        with open(os.path.join(temp_dir, "config.pkl"), 'wb') as f:
+            # 只序列化配置对象，不包含 Annoy 索引
+            pickle.dump(config, f)
+        
+        # 将临时目录路径保存到环境变量
+        os.environ['BUG_KNOWLEDGE_TEMP_DIR'] = temp_dir
         
         # 查找可用端口
         try:
@@ -157,23 +206,84 @@ def start_web_app(
         
         threading.Thread(target=open_browser, daemon=True).start()
         
-        # 启动服务器
-        uvicorn.run(
-            app,
-            host=host,
-            port=port,
-            reload=reload,  # 启用热更新
-            reload_dirs=["src", "mock"],  # 监视src和mock目录的变化
-            reload_delay=1,  # 延迟1秒后重新加载
-            reload_includes=["*.py", "*.html", "*.js", "*.css"],  # 监视的文件类型
-            reload_excludes=["*.pyc", "__pycache__", "*.pyo", "*.pyd"],  # 排除的文件
-            workers=1,  # 单进程模式，确保热重载正常工作
-            log_level="info"
-        )
+        # 设置默认的监视配置
+        if reload_dirs is None:
+            reload_dirs = ["src", "mock"]
+        if reload_includes is None:
+            reload_includes = ["*.py", "*.html", "*.js", "*.css"]
+        if reload_excludes is None:
+            reload_excludes = ["*.pyc", "__pycache__", "*.pyo", "*.pyd"]
+        
+        try:
+            # 启动服务器，使用导入字符串而不是应用实例
+            uvicorn.run(
+                "src.ui.web:create_app",
+                host=host,
+                port=port,
+                reload=reload,
+                reload_dirs=reload_dirs,
+                reload_delay=0.25,  # 减少重载延迟
+                reload_includes=reload_includes,
+                reload_excludes=reload_excludes,
+                workers=1,  # 单进程模式，确保热重载正常工作
+                log_level="info"
+            )
+        finally:
+            # 清理临时目录
+            try:
+                shutil.rmtree(temp_dir)
+            except:
+                pass
+            
     except Exception as e:
         logger.error(f"启动Web应用失败: {str(e)}")
         logger.error(f"错误堆栈: {traceback.format_exc()}")
         raise RuntimeError(f"启动Web应用失败: {str(e)}")
+
+# 为热重载创建一个工厂函数
+def create_app():
+    """创建FastAPI应用的工厂函数"""
+    try:
+        # 从环境变量获取临时目录路径
+        temp_dir = os.environ.get('BUG_KNOWLEDGE_TEMP_DIR')
+        if not temp_dir:
+            raise RuntimeError("临时目录路径未设置")
+        
+        # 加载配置
+        with open(os.path.join(temp_dir, "config.pkl"), 'rb') as f:
+            config = pickle.load(f)
+        
+        # 创建新的 BugSearcher 实例
+        searcher = BugSearcher()
+        vector_store = searcher.vector_store
+        
+        # 加载元数据
+        with open(os.path.join(temp_dir, "metadata.json"), 'r', encoding='utf-8') as f:
+            vector_store.metadata = json.load(f)
+        
+        # 加载索引文件
+        indices_dir = os.path.join(temp_dir, "indices")
+        
+        # 创建并加载索引
+        vector_store.question_index = AnnoyIndex(384, 'angular')
+        vector_store.code_index = AnnoyIndex(384, 'angular')
+        vector_store.log_index = AnnoyIndex(384, 'angular')
+        vector_store.env_index = AnnoyIndex(384, 'angular')
+        
+        if os.path.exists(os.path.join(indices_dir, "question.ann")):
+            vector_store.question_index.load(os.path.join(indices_dir, "question.ann"))
+        if os.path.exists(os.path.join(indices_dir, "code.ann")):
+            vector_store.code_index.load(os.path.join(indices_dir, "code.ann"))
+        if os.path.exists(os.path.join(indices_dir, "log.ann")):
+            vector_store.log_index.load(os.path.join(indices_dir, "log.ann"))
+        if os.path.exists(os.path.join(indices_dir, "env.ann")):
+            vector_store.env_index.load(os.path.join(indices_dir, "env.ann"))
+        
+        return create_web_app(searcher, config)
+    except Exception as e:
+        logger.error(f"创建应用失败: {str(e)}")
+        logger.error(f"错误堆栈: {traceback.format_exc()}")
+        raise RuntimeError(f"创建应用失败: {str(e)}")
 
 def main():
     logger.info("正在启动 Web 服务器...")
