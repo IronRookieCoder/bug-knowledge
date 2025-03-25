@@ -48,7 +48,6 @@ def load_mock_data(data_file: str = "mock/data/bug_reports.json", searcher: BugS
                 # 创建BugReport对象
                 bug_report = BugReport(
                     id=data["id"],
-                    title=data["title"],
                     description=data["description"],
                     reproducible=data["reproducible"],
                     steps_to_reproduce=data["steps_to_reproduce"],

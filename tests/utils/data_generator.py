@@ -9,19 +9,6 @@ class TestDataGenerator:
     """测试数据生成器"""
     
     def __init__(self):
-        self.bug_titles = [
-            "无法连接到数据库",
-            "内存泄漏问题",
-            "CPU使用率异常高",
-            "文件读写失败",
-            "网络连接超时",
-            "线程死锁",
-            "缓存未正确清理",
-            "日志文件损坏",
-            "配置加载失败",
-            "性能严重下降"
-        ]
-        
         self.error_messages = [
             "Connection refused: connect",
             "OutOfMemoryError: Java heap space",
@@ -74,7 +61,6 @@ class TestDataGenerator:
     def generate_bug_report(self, bug_id: str) -> Dict:
         """生成一个随机的bug报告"""
         # 随机选择模板
-        title = random.choice(self.bug_titles)
         error_msg = random.choice(self.error_messages)
         code_template = random.choice(self.code_templates)
         env = random.choice(self.environments)
@@ -85,8 +71,7 @@ class TestDataGenerator:
         
         return {
             "id": bug_id,
-            "title": title,
-            "description": f"在执行操作时遇到了{title}的问题。系统返回错误：{error_msg}",
+            "description": f"在执行操作时遇到了问题。系统返回错误：{error_msg}",
             "reproducible": random.choice([True, False]),
             "steps_to_reproduce": [
                 "1. 启动应用",

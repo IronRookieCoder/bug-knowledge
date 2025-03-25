@@ -69,7 +69,7 @@ class QuestionVectorizer(BaseVectorizer):
             if isinstance(data, str):
                 text = data
             else:
-                text = f"{data.title} {data.description} {data.expected_behavior} {data.actual_behavior}"
+                text = f"{data.description} {data.expected_behavior} {data.actual_behavior}"
             return self.model.encode(text).tolist()
         except Exception as e:
             logger.error(f"问题向量化失败: {str(e)}")

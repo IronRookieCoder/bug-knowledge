@@ -55,7 +55,6 @@ def create_web_app(searcher: BugSearcher, config: AppConfig) -> FastAPI:
 
     @app.post("/add")
     async def add_bug(
-        title: str = Form(...),
         description: str = Form(...),
         reproducible: bool = Form(...),
         steps: str = Form(...),
@@ -75,7 +74,6 @@ def create_web_app(searcher: BugSearcher, config: AppConfig) -> FastAPI:
             # 创建BugReport对象
             bug_report = BugReport(
                 id=f"BUG-{uuid.uuid4().hex[:8]}",
-                title=title,
                 description=description,
                 reproducible=reproducible,
                 steps_to_reproduce=steps.split('\n'),

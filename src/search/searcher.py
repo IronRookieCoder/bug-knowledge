@@ -5,7 +5,6 @@ from log import logger
 class BugSearcher:
     def search(
             self,
-            title: str = "",
             description: str = "",
             steps_to_reproduce: str = "",
             expected_behavior: str = "",
@@ -18,7 +17,6 @@ class BugSearcher:
             """搜索相似的BUG报告
             
             Args:
-                title: BUG标题
                 description: 问题描述
                 steps_to_reproduce: 重现步骤
                 expected_behavior: 期望结果
@@ -34,9 +32,6 @@ class BugSearcher:
             try:
                 # 生成查询向量
                 vectors = {}
-                
-                if title:
-                    vectors["title_vector"] = self.model.encode(title)
                 
                 if description:
                     vectors["description_vector"] = self.model.encode(description)

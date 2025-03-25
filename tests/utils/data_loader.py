@@ -23,7 +23,6 @@ class TestDataLoader:
         """将JSON数据转换为BugReport对象"""
         return BugReport(
             id=data["id"],
-            title=data["title"],
             description=data["description"],
             reproducible=data["reproducible"],
             steps_to_reproduce=data["steps_to_reproduce"],

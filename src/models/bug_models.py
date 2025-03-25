@@ -18,7 +18,6 @@ class EnvironmentInfo(BaseModel):
 
 class BugReport(BaseModel):
     id: str = Field(..., description="BUG唯一标识符")
-    title: str = Field(..., description="BUG标题")
     description: str = Field(..., description="问题描述")
     reproducible: bool = Field(..., description="是否可复现")
     steps_to_reproduce: List[str] = Field(..., description="重现步骤")
@@ -35,7 +34,6 @@ class BugReport(BaseModel):
         json_schema_extra = {
             "example": {
                 "id": "BUG-2024-001",
-                "title": "内存泄漏问题",
                 "description": "在长时间运行后观察到内存使用量持续增长",
                 "reproducible": True,
                 "steps_to_reproduce": [

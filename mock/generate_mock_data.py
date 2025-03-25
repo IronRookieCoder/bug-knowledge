@@ -175,7 +175,6 @@ def generate_mock_data(count: int = 10) -> List[Dict]:
         
         bug_report = {
             "id": f"BUG-{uuid.uuid4().hex[:8]}",
-            "title": BUG_TITLES[title_idx],
             "description": f"这是一个关于{BUG_TITLES[title_idx]}的详细描述。问题出现在系统运行过程中，影响了正常功能的使用。",
             "reproducible": random.choice([True, False]),
             "steps_to_reproduce": [

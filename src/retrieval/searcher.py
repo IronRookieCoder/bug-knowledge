@@ -65,44 +65,42 @@ class BugSearcher:
         # 查询类型权重配置
         self.query_type_weights = {
             "text_only": {
-                "title": 0.3,        # 标题权重
-                "description": 0.2,   # 问题描述权重
-                "steps": 0.15,       # 重现步骤权重
-                "expected": 0.1,      # 期望结果权重
-                "actual": 0.15,       # 实际结果权重
-                "code": 0.1          # 保留少量代码相关性
+                "description": 0.3,   # 问题描述权重
+                "steps": 0.2,         # 重现步骤权重
+                "expected": 0.15,      # 期望结果权重
+                "actual": 0.25,        # 实际结果权重
+                "code": 0.1           # 保留少量代码相关性
             },
             "code_only": {
-                "code": 0.7,         # 提高代码权重
-                "error": 0.2,        # 关联错误信息
-                "description": 0.1    # 保留少量问题描述相关性
+                "code": 0.7,          # 提高代码权重
+                "error": 0.2,         # 关联错误信息
+                "description": 0.1     # 保留少量问题描述相关性
             },
             "log_only": {
-                "error": 0.6,        # 错误日志主导
-                "code": 0.25,        # 关联代码上下文
-                "description": 0.15   # 关联问题描述
+                "error": 0.6,         # 错误日志主导
+                "code": 0.25,         # 关联代码上下文
+                "description": 0.15    # 关联问题描述
             },
             "mixed": {
-                "code": 0.35,        # 代码权重
-                "error": 0.25,       # 错误日志权重
-                "description": 0.15,  # 问题描述
-                "steps": 0.1,        # 重现步骤
-                "expected": 0.05,    # 期望结果
-                "actual": 0.1        # 实际结果
+                "code": 0.35,         # 代码权重
+                "error": 0.25,        # 错误日志权重
+                "description": 0.15,   # 问题描述
+                "steps": 0.1,         # 重现步骤
+                "expected": 0.05,     # 期望结果
+                "actual": 0.1         # 实际结果
             }
         }
         
         # 相似度阈值配置
         self.similarity_thresholds = {
             "text": {
-                "title_boost": 1.3,      # 提高标题匹配权重
                 "keyword_weight": 0.4,    # 提高关键词匹配权重
-                "semantic_weight": 0.6    # 降低语义权重
+                "semantic_weight": 0.6     # 降低语义权重
             },
             "code": {
-                "structure_weight": 0.5,  # 提高结构相似度权重
-                "semantic_weight": 0.5,   # 降低语义权重
-                "language_support": {     # 支持的编程语言
+                "structure_weight": 0.5,   # 提高结构相似度权重
+                "semantic_weight": 0.5,    # 降低语义权重
+                "language_support": {      # 支持的编程语言
                     "javascript": {
                         "extensions": [".js", ".jsx", ".ts", ".tsx"],
                         "weight": 1.0
@@ -114,9 +112,9 @@ class BugSearcher:
                 }
             },
             "log": {
-                "exact_match_boost": 1.4, # 提高精确匹配权重
-                "pattern_weight": 0.6,    # 提高模式匹配权重
-                "context_weight": 0.4     # 降低上下文权重
+                "exact_match_boost": 1.4,  # 提高精确匹配权重
+                "pattern_weight": 0.6,     # 提高模式匹配权重
+                "context_weight": 0.4      # 降低上下文权重
             }
         }
     
@@ -405,17 +403,7 @@ class BugSearcher:
     
     def _rerank_text_results(self, results: List[Dict], query_text: str, n_results: int) -> List[Dict]:
         """重新排序文本搜索结果"""
-        for result in results:
-            # 计算标题匹配得分
-            title_similarity = self._calculate_text_similarity(
-                query_text, 
-                result["title"],
-                self.similarity_thresholds["text"]["title_boost"]
-            )
-            # 更新相似度得分
-            result["distance"] = result["distance"] * 0.7 + (1 - title_similarity) * 0.3
-        
-        # 按更新后的得分重新排序
+        # 直接返回按距离排序的结果
         return sorted(results, key=lambda x: x["distance"])[:n_results]
     
     def _rerank_code_results(self, results: List[Dict], code_snippet: str) -> List[Dict]:

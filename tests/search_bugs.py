@@ -15,11 +15,9 @@ console = Console()
 
 def format_bug_report(bug: dict, index: int = None) -> Panel:
     """格式化bug报告为富文本面板"""
-    title = f"{'#'+str(index) if index else ''} {bug['title']}"
     similarity = f"相似度: {(1 - bug['distance']) * 100:.1f}%"
     
     content = [
-        f"[bold blue]{title}[/bold blue] [green]{similarity}[/green]",
         f"[dim]ID: {bug['id']}[/dim]\n",
         
         "[yellow]问题描述：[/yellow]",
@@ -50,7 +48,7 @@ def format_bug_report(bug: dict, index: int = None) -> Panel:
     if bug['environment'].get('network_env'):
         content.append(f"网络环境：{bug['environment']['network_env']}")
     
-    return Panel("\n".join(content), title=title, border_style="blue")
+    return Panel("\n".join(content), border_style="blue")
 
 def search_bugs(searcher: BugSearcher = None):
     """Bug知识库搜索功能"""

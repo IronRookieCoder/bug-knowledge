@@ -95,7 +95,6 @@ def search_bugs():
         for i, result in enumerate(results, 1):
             print(f"结果 {i}:")
             print(f"Bug ID: {result['id']}")
-            print(f"标题: {result['title']}")
             print(f"描述: {result['description']}")
             print(f"相似度得分: {1 - result['distance']:.4f}")
             print("-" * 50)
