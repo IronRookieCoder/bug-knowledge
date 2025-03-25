@@ -18,7 +18,10 @@ def load_mock_data(data_file: str = "mock/data/bug_reports.json", searcher: BugS
     """加载测试数据到搜索器"""
     # 初始化搜索器
     if searcher is None:
-        searcher = BugSearcher()
+        # 创建带有写入模式的向量存储
+        from src.storage.vector_store import VectorStore
+        vector_store = VectorStore(read_only=False, data_dir="data/annoy")
+        searcher = BugSearcher(vector_store=vector_store)
     
     # 读取测试数据
     try:

@@ -148,109 +148,6 @@ def create_web_app(searcher: BugSearcher, config: AppConfig) -> FastAPI:
                 logger.warning("没有提供任何搜索条件")
                 return {"status": "error", "message": "请至少输入一个搜索条件"}
             
-            # 根据输入内容的类型动态调整权重
-            weights = {}
-            
-            # 如果只有代码
-            if has_content["code"] and not any(v for k, v in has_content.items() if k != "code"):
-                weights = {
-                    "description": 0.0,
-                    "steps": 0.0,
-                    "expected": 0.0,
-                    "actual": 0.0,
-                    "code": 0.8,
-                    "log": 0.2,
-                    "env": 0.0
-                }
-                logger.info("使用代码特化权重")
-            
-            # 如果只有错误日志
-            elif has_content["log"] and not any(v for k, v in has_content.items() if k != "log"):
-                weights = {
-                    "description": 0.1,
-                    "steps": 0.0,
-                    "expected": 0.0,
-                    "actual": 0.0,
-                    "code": 0.3,
-                    "log": 0.6,
-                    "env": 0.0
-                }
-                logger.info("使用错误日志特化权重")
-            
-            # 如果只有问题描述相关字段
-            elif any(has_content[k] for k in ["description", "steps", "expected", "actual"]) and not (has_content["code"] or has_content["log"]):
-                total = sum(has_content[k] for k in ["description", "steps", "expected", "actual"])
-                base_weight = 1.0 / total if total > 0 else 0
-                weights = {
-                    "description": base_weight if has_content["description"] else 0.0,
-                    "steps": base_weight if has_content["steps"] else 0.0,
-                    "expected": base_weight if has_content["expected"] else 0.0,
-                    "actual": base_weight if has_content["actual"] else 0.0,
-                    "code": 0.0,
-                    "log": 0.0,
-                    "env": 0.0
-                }
-                logger.info("使用问题描述特化权重")
-            
-            # 如果同时包含代码和错误日志
-            elif has_content["code"] and has_content["log"]:
-                weights = {
-                    "description": 0.1 if has_content["description"] else 0.0,
-                    "steps": 0.1 if has_content["steps"] else 0.0,
-                    "expected": 0.05 if has_content["expected"] else 0.0,
-                    "actual": 0.05 if has_content["actual"] else 0.0,
-                    "code": 0.4,
-                    "log": 0.3,
-                    "env": 0.0
-                }
-                logger.info("使用代码+错误日志特化权重")
-            
-            # 如果包含代码和问题描述
-            elif has_content["code"] and any(has_content[k] for k in ["description", "steps", "expected", "actual"]):
-                weights = {
-                    "description": 0.2 if has_content["description"] else 0.0,
-                    "steps": 0.15 if has_content["steps"] else 0.0,
-                    "expected": 0.1 if has_content["expected"] else 0.0,
-                    "actual": 0.15 if has_content["actual"] else 0.0,
-                    "code": 0.4,
-                    "log": 0.0,
-                    "env": 0.0
-                }
-                logger.info("使用代码+问题描述特化权重")
-            
-            # 如果包含错误日志和问题描述
-            elif has_content["log"] and any(has_content[k] for k in ["description", "steps", "expected", "actual"]):
-                weights = {
-                    "description": 0.2 if has_content["description"] else 0.0,
-                    "steps": 0.15 if has_content["steps"] else 0.0,
-                    "expected": 0.1 if has_content["expected"] else 0.0,
-                    "actual": 0.15 if has_content["actual"] else 0.0,
-                    "code": 0.0,
-                    "log": 0.4,
-                    "env": 0.0
-                }
-                logger.info("使用错误日志+问题描述特化权重")
-            
-            # 默认权重（混合场景）
-            else:
-                weights = {
-                    "description": 0.2 if has_content["description"] else 0.0,
-                    "steps": 0.15 if has_content["steps"] else 0.0,
-                    "expected": 0.1 if has_content["expected"] else 0.0,
-                    "actual": 0.15 if has_content["actual"] else 0.0,
-                    "code": 0.2 if has_content["code"] else 0.0,
-                    "log": 0.2 if has_content["log"] else 0.0,
-                    "env": 0.0
-                }
-                logger.info("使用默认混合权重")
-            
-            # 重新归一化权重，确保总和为1
-            total_weight = sum(weights.values())
-            if total_weight > 0:
-                weights = {k: v/total_weight for k, v in weights.items()}
-            
-            logger.info(f"最终搜索权重: {weights}")
-            
             # 获取搜索结果, 请求更多结果
             actual_n_results = max(n_results * 2, 10)  # 至少请求10个结果
             logger.info(f"执行搜索, 请求 {actual_n_results} 个结果")
@@ -260,7 +157,6 @@ def create_web_app(searcher: BugSearcher, config: AppConfig) -> FastAPI:
                 code_snippet=code,
                 error_log=error_logs,
                 env_info="",
-                weights=weights,
                 n_results=actual_n_results
             )
             
@@ -274,16 +170,18 @@ def create_web_app(searcher: BugSearcher, config: AppConfig) -> FastAPI:
                 for i, result in enumerate(results[:min(5, len(results))], 1):
                     logger.info(f"结果 #{i}: ID={result['id']}, 距离={result['distance']}")
             
-            # 只返回用户请求的结果数量
-            final_results = results[:n_results] if len(results) > n_results else results
-            logger.info(f"最终返回 {len(final_results)} 个结果")
-            
-            return {"status": "success", "results": final_results}
+            return {
+                "status": "success",
+                "results": results[:n_results]
+            }
             
         except Exception as e:
             logger.error(f"搜索失败: {str(e)}")
             logger.error(f"错误堆栈: {traceback.format_exc()}")
-            return {"status": "error", "message": str(e)}
+            return {
+                "status": "error",
+                "message": f"搜索失败: {str(e)}"
+            }
     
     return app
 
@@ -351,14 +249,33 @@ def create_app(searcher: BugSearcher, config: AppConfig) -> FastAPI:
         vector_store.log_index = AnnoyIndex(384, 'angular')
         vector_store.env_index = AnnoyIndex(384, 'angular')
         
-        if os.path.exists(os.path.join(indices_dir, "question.ann")):
-            vector_store.question_index.load(os.path.join(indices_dir, "question.ann"))
-        if os.path.exists(os.path.join(indices_dir, "code.ann")):
-            vector_store.code_index.load(os.path.join(indices_dir, "code.ann"))
-        if os.path.exists(os.path.join(indices_dir, "log.ann")):
-            vector_store.log_index.load(os.path.join(indices_dir, "log.ann"))
-        if os.path.exists(os.path.join(indices_dir, "env.ann")):
-            vector_store.env_index.load(os.path.join(indices_dir, "env.ann"))
+        # 添加重试机制
+        max_retries = 3
+        retry_delay = 0.5  # 秒
+        
+        for index_name, index in [
+            ("question", vector_store.question_index),
+            ("code", vector_store.code_index),
+            ("log", vector_store.log_index),
+            ("env", vector_store.env_index)
+        ]:
+            index_path = os.path.join(indices_dir, f"{index_name}.ann")
+            if os.path.exists(index_path):
+                for attempt in range(max_retries):
+                    try:
+                        index.load(index_path)
+                        logger.info(f"成功加载索引: {index_name}")
+                        break
+                    except Exception as e:
+                        logger.warning(f"加载索引 {index_name} 失败 (尝试 {attempt + 1}/{max_retries}): {str(e)}")
+                        if attempt < max_retries - 1:
+                            time.sleep(retry_delay)
+                        else:
+                            logger.error(f"加载索引 {index_name} 失败，已达到最大重试次数")
+                            # 如果加载失败，创建一个新的空索引
+                            index = AnnoyIndex(384, 'angular')
+                            index.build(10)
+                            logger.info(f"创建新的空索引: {index_name}")
         
         return create_web_app(searcher, config)
     except Exception as e:

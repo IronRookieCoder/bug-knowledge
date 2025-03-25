@@ -17,7 +17,7 @@ os.environ['TRANSFORMERS_OFFLINE'] = '1'
 
 class BugSearcher:
     def __init__(self, vector_store: Optional[VectorStore] = None):
-        self.vector_store = vector_store or VectorStore()
+        self.vector_store = vector_store or VectorStore(read_only=False)
         self.code_feature_extractor = CodeFeatureExtractor()
         
         try:
@@ -170,6 +170,129 @@ class BugSearcher:
             logger.error(f"错误堆栈: {traceback.format_exc()}")
             return False
     
+    def _calculate_dynamic_weights(self, query_text: str, code_snippet: str, 
+                                 error_log: str, env_info: str) -> Dict[str, float]:
+        """计算动态权重
+        
+        Args:
+            query_text: 查询文本
+            code_snippet: 代码片段
+            error_log: 错误日志
+            env_info: 环境信息
+            
+        Returns:
+            Dict[str, float]: 计算得到的权重字典
+        """
+        # 检查每个字段是否有内容
+        has_content = {
+            "description": bool(query_text.strip()),
+            "code": bool(code_snippet.strip()),
+            "log": bool(error_log.strip()),
+            "env": bool(env_info.strip())
+        }
+        
+        # 根据输入内容的类型动态调整权重
+        weights = {}
+        
+        # 如果只有代码
+        if has_content["code"] and not any(v for k, v in has_content.items() if k != "code"):
+            weights = {
+                "description": 0.0,
+                "steps": 0.0,
+                "expected": 0.0,
+                "actual": 0.0,
+                "code": 0.8,
+                "log": 0.2,
+                "env": 0.0
+            }
+            logger.info("使用代码特化权重")
+        
+        # 如果只有错误日志
+        elif has_content["log"] and not any(v for k, v in has_content.items() if k != "log"):
+            weights = {
+                "description": 0.1,
+                "steps": 0.0,
+                "expected": 0.0,
+                "actual": 0.0,
+                "code": 0.3,
+                "log": 0.6,
+                "env": 0.0
+            }
+            logger.info("使用错误日志特化权重")
+        
+        # 如果只有问题描述相关字段
+        elif has_content["description"] and not (has_content["code"] or has_content["log"]):
+            weights = {
+                "description": 0.4,
+                "steps": 0.2,
+                "expected": 0.2,
+                "actual": 0.2,
+                "code": 0.0,
+                "log": 0.0,
+                "env": 0.0
+            }
+            logger.info("使用问题描述特化权重")
+        
+        # 如果同时包含代码和错误日志
+        elif has_content["code"] and has_content["log"]:
+            weights = {
+                "description": 0.1,
+                "steps": 0.1,
+                "expected": 0.05,
+                "actual": 0.05,
+                "code": 0.4,
+                "log": 0.3,
+                "env": 0.0
+            }
+            logger.info("使用代码+错误日志特化权重")
+        
+        # 如果包含代码和问题描述
+        elif has_content["code"] and has_content["description"]:
+            weights = {
+                "description": 0.2,
+                "steps": 0.15,
+                "expected": 0.1,
+                "actual": 0.15,
+                "code": 0.4,
+                "log": 0.0,
+                "env": 0.0
+            }
+            logger.info("使用代码+问题描述特化权重")
+        
+        # 如果包含错误日志和问题描述
+        elif has_content["log"] and has_content["description"]:
+            weights = {
+                "description": 0.2,
+                "steps": 0.15,
+                "expected": 0.1,
+                "actual": 0.15,
+                "code": 0.0,
+                "log": 0.4,
+                "env": 0.0
+            }
+            logger.info("使用错误日志+问题描述特化权重")
+        
+        # 默认权重（混合场景）
+        else:
+            weights = {
+                "description": 0.2,
+                "steps": 0.15,
+                "expected": 0.1,
+                "actual": 0.15,
+                "code": 0.2,
+                "log": 0.2,
+                "env": 0.0
+            }
+            logger.info("使用默认混合权重")
+        
+        # 重新归一化权重，确保总和为1
+        total_weight = sum(weights.values())
+        if total_weight > 0:
+            weights = {k: v/total_weight for k, v in weights.items()}
+        
+        logger.info(f"最终搜索权重: {weights}")
+        return weights
+
     def search(
         self,
         query_text: str = "",
@@ -186,55 +309,30 @@ class BugSearcher:
             code_snippet: 代码片段
             error_log: 错误日志
             env_info: 环境信息
-            weights: 各个字段的权重
+            weights: 各个字段的权重（如果为None，则使用动态权重）
             n_results: 返回结果数量
             
         Returns:
             List[Dict]: 搜索结果列表
         """
         try:
-            # 扩大返回结果数量，确保有足够的结果
-            requested_results = max(n_results, 10)
-            logger.info(f"搜索开始: 查询文本={query_text[:20]}..., 请求结果数={requested_results}")
+            # 如果没有提供权重，使用动态权重计算
+            if weights is None:
+                weights = self._calculate_dynamic_weights(query_text, code_snippet, error_log, env_info)
             
             # 生成查询向量
-            vectors = {}
+            vectors = self._generate_query_vectors(query_text, code_snippet, error_log, env_info)
             
-            if query_text:
-                # 尝试从查询文本中提取不同部分
-                parts = self._split_query_text(query_text)
-                vectors.update({
-                    "description_vector": self.text_encoder.encode(parts.get("description", "")),
-                    "steps_vector": self.text_encoder.encode(parts.get("steps", "")),
-                    "expected_vector": self.text_encoder.encode(parts.get("expected", "")),
-                    "actual_vector": self.text_encoder.encode(parts.get("actual", ""))
-                })
-                logger.info(f"生成查询向量: 从查询文本中提取的部分: {list(parts.keys())}")
-            
-            if code_snippet:
-                vectors["code_vector"] = self.text_encoder.encode(code_snippet)
-                logger.info(f"生成代码向量: 代码长度={len(code_snippet)}")
-            
-            if error_log:
-                vectors["log_vector"] = self.text_encoder.encode(error_log)
-                logger.info(f"生成日志向量: 日志长度={len(error_log)}")
-            
-            if env_info:
-                vectors["env_vector"] = self.text_encoder.encode(env_info)
-                logger.info(f"生成环境向量: 环境信息长度={len(env_info)}")
-                
-            # 如果没有提供任何搜索内容，返回空列表
+            # 如果没有生成任何向量，返回空列表
             if not vectors:
-                logger.warning("没有提供任何搜索内容，返回空列表")
+                logger.warning("没有生成任何查询向量")
                 return []
-            
-            logger.info(f"生成的向量类型: {list(vectors.keys())}")
             
             # 搜索相似的BUG报告，请求更多结果
             search_results = self.vector_store.search(
                 query_vectors=vectors,
                 weights=weights,
-                n_results=requested_results * 3  # 请求更多结果
+                n_results=n_results * 3  # 请求更多结果
             )
             
             logger.info(f"搜索完成: 找到 {len(search_results)} 个结果")
