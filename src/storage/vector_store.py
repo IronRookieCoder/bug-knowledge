@@ -1,4 +1,4 @@
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional, Tuple, Any
 import json
 import os
 from annoy import AnnoyIndex
@@ -15,547 +15,392 @@ from src.features.code_features import CodeFeatureExtractor, CodeFeatures
 logger = logging.getLogger(__name__)
 
 class VectorStore:
-    def __init__(self, data_dir="data/annoy"):
-        try:
-            # 使用绝对路径并确保使用正斜杠
-            self.data_dir = os.path.abspath(data_dir).replace('\\', '/')
-            os.makedirs(self.data_dir, exist_ok=True)
-            
-            self.metadata_file = os.path.join(self.data_dir, "metadata.json").replace('\\', '/')
-            self.metadata = self._load_metadata()
-            
-            # 初始化索引
-            self.question_index = None
-            self.code_index = None
-            self.log_index = None
-            self.env_index = None
-            
-            # 初始化代码特征提取器
-            self.code_feature_extractor = CodeFeatureExtractor()
-            
-            self._load_existing_indices()
-            logger.info(f"向量存储初始化成功: {self.data_dir}")
-        except Exception as e:
-            logger.error(f"向量存储初始化失败: {str(e)}")
-            logger.error(f"错误堆栈: {traceback.format_exc()}")
-            raise RuntimeError(f"向量存储初始化失败: {str(e)}")
-    
-    def _load_metadata(self):
-        if not os.path.exists(self.metadata_file):
-            logger.warning(f"元数据文件不存在，创建新文件: {self.metadata_file}")
-            return {"questions": [], "codes": [], "logs": [], "envs": []}
+    def __init__(self, data_dir: str = "data/annoy", vector_dim: int = 384, index_type: str = "angular"):
+        self.data_dir = data_dir
+        self.vector_dim = vector_dim
+        self.index_type = index_type
         
-        try:
-            with open(self.metadata_file, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except Exception as e:
-            logger.warning(f"元数据文件损坏，创建新文件: {self.metadata_file}")
-            return {"questions": [], "codes": [], "logs": [], "envs": []}
+        # 创建数据目录
+        os.makedirs(self.data_dir, exist_ok=True)
+        
+        # 初始化索引
+        self.description_index = None
+        self.steps_index = None
+        self.expected_index = None
+        self.actual_index = None
+        self.code_index = None
+        self.log_index = None
+        self.env_index = None
+        
+        # 初始化元数据
+        self.metadata = {
+            "bugs": {},
+            "next_id": 0
+        }
+        
+        # 加载或创建索引
+        self._load_or_create_indices()
     
-    def _save_metadata(self):
+    def _load_or_create_indices(self):
+        """加载或创建索引"""
         try:
-            with open(self.metadata_file, 'w', encoding='utf-8') as f:
-                json.dump(self.metadata, f, ensure_ascii=False, indent=2)
+            # 加载元数据
+            metadata_path = os.path.join(self.data_dir, "metadata.json")
+            if os.path.exists(metadata_path):
+                with open(metadata_path, 'r', encoding='utf-8') as f:
+                    self.metadata = json.load(f)
+                    # 转换时间字符串为datetime对象
+                    for bug_id, bug_data in self.metadata["bugs"].items():
+                        bug_data["created_at"] = datetime.fromisoformat(bug_data["created_at"])
+                        bug_data["updated_at"] = datetime.fromisoformat(bug_data["updated_at"])
+            
+            # 创建或加载索引
+            self.description_index = self._create_or_load_index("description")
+            self.steps_index = self._create_or_load_index("steps")
+            self.expected_index = self._create_or_load_index("expected")
+            self.actual_index = self._create_or_load_index("actual")
+            self.code_index = self._create_or_load_index("code")
+            self.log_index = self._create_or_load_index("log")
+            self.env_index = self._create_or_load_index("env")
+            
         except Exception as e:
-            logger.error(f"保存元数据失败: {str(e)}")
-            logger.error(f"错误堆栈: {traceback.format_exc()}")
-            raise RuntimeError(f"保存元数据失败: {str(e)}")
-    
-    def _load_existing_indices(self):
-        try:
-            indices_dir = os.path.join(self.data_dir, "indices").replace('\\', '/')
-            if not os.path.exists(indices_dir):
-                logger.info("索引目录不存在，跳过加载")
-                return
-            
-            # 加载向量
-            question_vectors = np.load(os.path.join(indices_dir, "question.npy"))
-            code_vectors = np.load(os.path.join(indices_dir, "code.npy"))
-            log_vectors = np.load(os.path.join(indices_dir, "log.npy"))
-            env_vectors = np.load(os.path.join(indices_dir, "env.npy"))
-            
-            # 创建索引
-            self.question_index = AnnoyIndex(384, 'angular')
-            self.code_index = AnnoyIndex(384, 'angular')
-            self.log_index = AnnoyIndex(384, 'angular')
-            self.env_index = AnnoyIndex(384, 'angular')
-            
-            # 添加向量
-            for i, vector in enumerate(question_vectors):
-                self.question_index.add_item(i, vector)
-            for i, vector in enumerate(code_vectors):
-                self.code_index.add_item(i, vector)
-            for i, vector in enumerate(log_vectors):
-                self.log_index.add_item(i, vector)
-            for i, vector in enumerate(env_vectors):
-                self.env_index.add_item(i, vector)
-            
-            # 构建索引
-            self.question_index.build(10)
-            self.code_index.build(10)
-            self.log_index.build(10)
-            self.env_index.build(10)
-            
-            logger.info("成功加载现有索引")
-        except Exception as e:
-            logger.error(f"加载索引失败: {str(e)}")
-            logger.error(f"错误堆栈: {traceback.format_exc()}")
-            raise RuntimeError(f"加载索引失败: {str(e)}")
-    
-    def add_bug_report(self, bug_report, vectors):
-        try:
-            # 提取代码特征
-            code_features = self.code_feature_extractor.extract_features(bug_report.code_context.code)
-            
+            logger.error(f"加载索引失败，将创建新索引: {str(e)}")
             # 创建新的索引
-            new_question_index = AnnoyIndex(384, 'angular')
-            new_code_index = AnnoyIndex(384, 'angular')
-            new_log_index = AnnoyIndex(384, 'angular')
-            new_env_index = AnnoyIndex(384, 'angular')
+            self._create_new_indices()
+    
+    def _create_or_load_index(self, name: str) -> Optional[AnnoyIndex]:
+        """创建或加载单个索引"""
+        try:
+            index = AnnoyIndex(self.vector_dim, self.index_type)
+            index_path = os.path.join(self.data_dir, f"{name}.ann")
             
-            # 收集所有向量
-            question_vectors = []
-            code_vectors = []
-            log_vectors = []
-            env_vectors = []
-            
-            # 复制现有项目
-            if self.question_index:
-                for i in range(len(self.metadata["questions"])):
-                    vector = self.question_index.get_item_vector(i)
-                    question_vectors.append(vector)
-                    new_question_index.add_item(i, vector)
-            
-            if self.code_index:
-                for i in range(len(self.metadata["codes"])):
-                    vector = self.code_index.get_item_vector(i)
-                    code_vectors.append(vector)
-                    new_code_index.add_item(i, vector)
-            
-            if self.log_index:
-                for i in range(len(self.metadata["logs"])):
-                    vector = self.log_index.get_item_vector(i)
-                    log_vectors.append(vector)
-                    new_log_index.add_item(i, vector)
-            
-            if self.env_index:
-                for i in range(len(self.metadata["envs"])):
-                    vector = self.env_index.get_item_vector(i)
-                    env_vectors.append(vector)
-                    new_env_index.add_item(i, vector)
-            
-            # 添加新项目
-            question_vectors.append(vectors["question_vector"])
-            code_vectors.append(vectors["code_vector"])
-            log_vectors.append(vectors["log_vector"])
-            env_vectors.append(vectors["env_vector"])
-            
-            new_question_index.add_item(len(question_vectors) - 1, vectors["question_vector"])
-            new_code_index.add_item(len(code_vectors) - 1, vectors["code_vector"])
-            new_log_index.add_item(len(log_vectors) - 1, vectors["log_vector"])
-            new_env_index.add_item(len(env_vectors) - 1, vectors["env_vector"])
-            
+            if os.path.exists(index_path):
+                # 如果索引文件存在，尝试加载它
+                try:
+                    index.load(index_path)
+                    logger.info(f"成功加载索引: {name}, 包含 {index.get_n_items()} 个项目")
+                    return index
+                except Exception as e:
+                    logger.error(f"加载索引 {name} 失败，将创建新索引: {str(e)}")
+                    # 如果加载失败，创建新的索引
+                    return AnnoyIndex(self.vector_dim, self.index_type)
+            else:
+                logger.info(f"索引文件不存在，创建新索引: {name}")
+                return index
+        except Exception as e:
+            logger.error(f"初始化索引 {name} 失败: {str(e)}")
+            logger.error(f"错误堆栈: {traceback.format_exc()}")
+            # 返回 None 表示索引创建失败
+            return None
+    
+    def _create_new_indices(self):
+        """创建新的索引"""
+        self.description_index = AnnoyIndex(self.vector_dim, self.index_type)
+        self.steps_index = AnnoyIndex(self.vector_dim, self.index_type)
+        self.expected_index = AnnoyIndex(self.vector_dim, self.index_type)
+        self.actual_index = AnnoyIndex(self.vector_dim, self.index_type)
+        self.code_index = AnnoyIndex(self.vector_dim, self.index_type)
+        self.log_index = AnnoyIndex(self.vector_dim, self.index_type)
+        self.env_index = AnnoyIndex(self.vector_dim, self.index_type)
+    
+    def _save_indices(self):
+        """保存索引和元数据"""
+        # 在保存之前转换datetime对象为ISO格式字符串
+        metadata_copy = {
+            "bugs": {},
+            "next_id": self.metadata["next_id"]
+        }
+        
+        for bug_id, bug_data in self.metadata["bugs"].items():
+            metadata_copy["bugs"][bug_id] = bug_data.copy()
+            metadata_copy["bugs"][bug_id]["created_at"] = bug_data["created_at"].isoformat()
+            metadata_copy["bugs"][bug_id]["updated_at"] = bug_data["updated_at"].isoformat()
+        
+        # 保存元数据
+        with open(os.path.join(self.data_dir, "metadata.json"), 'w', encoding='utf-8') as f:
+            json.dump(metadata_copy, f, ensure_ascii=False, indent=2)
+        
+        # 构建并保存索引
+        self._build_and_save_index(self.description_index, "description")
+        self._build_and_save_index(self.steps_index, "steps")
+        self._build_and_save_index(self.expected_index, "expected")
+        self._build_and_save_index(self.actual_index, "actual")
+        self._build_and_save_index(self.code_index, "code")
+        self._build_and_save_index(self.log_index, "log")
+        self._build_and_save_index(self.env_index, "env")
+    
+    def _build_and_save_index(self, index: Optional[AnnoyIndex], name: str):
+        """构建并保存单个索引"""
+        if index is None:
+            logger.warning(f"索引 {name} 为 None，无法保存")
+            return
+        
+        # 检查索引是否包含项目
+        if index.get_n_items() <= 0:
+            logger.info(f"索引 {name} 为空，跳过保存")
+            return
+        
+        temp_path = None
+        try:
             # 构建索引
-            new_question_index.build(10)
-            new_code_index.build(10)
-            new_log_index.build(10)
-            new_env_index.build(10)
+            index.build(10)  # 使用10棵树
+            # 保存到临时文件
+            temp_path = os.path.join(self.data_dir, f"{name}.ann.tmp")
+            index.save(temp_path)
+            # 原子地替换旧文件
+            final_path = os.path.join(self.data_dir, f"{name}.ann")
+            os.replace(temp_path, final_path)
+            logger.info(f"成功保存索引: {name}")
+        except Exception as e:
+            logger.error(f"保存索引 {name} 失败: {str(e)}")
+            logger.error(f"错误堆栈: {traceback.format_exc()}")
+            # 清理临时文件
+            if temp_path and os.path.exists(temp_path):
+                try:
+                    os.remove(temp_path)
+                except Exception:
+                    logger.warning(f"删除临时索引文件失败: {temp_path}")
             
-            # 确保索引目录存在
-            indices_dir = os.path.join(self.data_dir, "indices").replace('\\', '/')
-            os.makedirs(indices_dir, exist_ok=True)
+    def add_bug_report(self, bug_report: BugReport, vectors: Dict[str, Any]):
+        """添加bug报告到索引"""
+        try:
+            # 获取新的ID
+            idx = self.metadata["next_id"]
+            self.metadata["next_id"] += 1
             
-            # 保存向量
-            question_index_path = os.path.join(indices_dir, "question.npy").replace('\\', '/')
-            code_index_path = os.path.join(indices_dir, "code.npy").replace('\\', '/')
-            log_index_path = os.path.join(indices_dir, "log.npy").replace('\\', '/')
-            env_index_path = os.path.join(indices_dir, "env.npy").replace('\\', '/')
-            
-            logger.info(f"保存向量到: {question_index_path}")
-            np.save(question_index_path, np.array(question_vectors))
-            np.save(code_index_path, np.array(code_vectors))
-            np.save(log_index_path, np.array(log_vectors))
-            np.save(env_index_path, np.array(env_vectors))
-            
-            # 更新元数据
-            self.metadata["questions"].append({
+            # 保存bug报告元数据
+            self.metadata["bugs"][str(idx)] = {
                 "id": bug_report.id,
-                "title": bug_report.title,
                 "description": bug_report.description,
                 "reproducible": bug_report.reproducible,
                 "steps_to_reproduce": bug_report.steps_to_reproduce,
                 "expected_behavior": bug_report.expected_behavior,
                 "actual_behavior": bug_report.actual_behavior,
-                "created_at": bug_report.created_at.isoformat(),
-                "updated_at": bug_report.updated_at.isoformat(),
-                "tags": bug_report.tags
-            })
+                "code_context": {
+                    "code": bug_report.code_context.code if bug_report.code_context else "",
+                    "file_path": bug_report.code_context.file_path if bug_report.code_context else "",
+                    "line_range": bug_report.code_context.line_range if bug_report.code_context else [],
+                    "language": bug_report.code_context.language if bug_report.code_context else ""
+                },
+                "error_logs": bug_report.error_logs,
+                "environment": {
+                    "runtime_env": bug_report.environment.runtime_env if bug_report.environment else "",
+                    "os_info": bug_report.environment.os_info if bug_report.environment else "",
+                    "network_env": bug_report.environment.network_env if bug_report.environment else ""
+                },
+                "created_at": bug_report.created_at,
+                "updated_at": bug_report.updated_at
+            }
             
-            self.metadata["codes"].append({
-                "id": bug_report.id,
-                "code": bug_report.code_context.code,
-                "file_path": bug_report.code_context.file_path,
-                "line_range": bug_report.code_context.line_range,
-                "language": bug_report.code_context.language,
-                "dependencies": bug_report.code_context.dependencies,
-                "diff": bug_report.code_context.diff,
-                "features": {
-                    "ast": code_features.ast_features,
-                    "symbol": code_features.symbol_features,
-                    "structure": code_features.structure_features
-                }
-            })
+            # 添加向量到索引
+            success = True
+            try:
+                if "description_vector" in vectors and self.description_index is not None:
+                    self.description_index.add_item(idx, vectors["description_vector"])
+                if "steps_vector" in vectors and self.steps_index is not None:
+                    self.steps_index.add_item(idx, vectors["steps_vector"])
+                if "expected_vector" in vectors and self.expected_index is not None:
+                    self.expected_index.add_item(idx, vectors["expected_vector"])
+                if "actual_vector" in vectors and self.actual_index is not None:
+                    self.actual_index.add_item(idx, vectors["actual_vector"])
+                if "code_vector" in vectors and self.code_index is not None:
+                    self.code_index.add_item(idx, vectors["code_vector"])
+                if "log_vector" in vectors and self.log_index is not None:
+                    self.log_index.add_item(idx, vectors["log_vector"])
+                if "env_vector" in vectors and self.env_index is not None:
+                    self.env_index.add_item(idx, vectors["env_vector"])
+                
+                # 保存更改
+                self._save_indices()
+                
+            except Exception as e:
+                logger.error(f"添加向量到索引失败: {str(e)}")
+                logger.error(f"错误堆栈: {traceback.format_exc()}")
+                success = False
+                # 如果添加向量失败，回滚元数据更改
+                if str(idx) in self.metadata["bugs"]:
+                    del self.metadata["bugs"][str(idx)]
+                self.metadata["next_id"] = idx
             
-            self.metadata["logs"].append({
-                "id": bug_report.id,
-                "log": bug_report.error_logs
-            })
+            return success
             
-            self.metadata["envs"].append({
-                "id": bug_report.id,
-                "runtime_env": bug_report.environment.runtime_env,
-                "os_info": bug_report.environment.os_info,
-                "network_env": bug_report.environment.network_env,
-                "additional_info": bug_report.environment.additional_info
-            })
-            
-            self._save_metadata()
-            
-            # 更新当前索引
-            self.question_index = new_question_index
-            self.code_index = new_code_index
-            self.log_index = new_log_index
-            self.env_index = new_env_index
-            
-            logger.info(f"成功添加Bug报告: {bug_report.id}")
         except Exception as e:
-            logger.error(f"添加Bug报告失败: {str(e)}")
+            logger.error(f"添加bug报告失败: {str(e)}")
             logger.error(f"错误堆栈: {traceback.format_exc()}")
-            raise RuntimeError(f"添加Bug报告失败: {str(e)}")
+            return False
     
-    def search(self, query_vectors, n_results=5, weights=None):
+    def search(self, query_vectors: Dict[str, Any], n_results: int = 5, weights: Dict[str, float] = None) -> List[Dict]:
+        """搜索相似的bug报告"""
         try:
+            logger.info(f"开始搜索，请求返回 {n_results} 个结果")
+            
+            # 如果没有提供权重，使用默认权重
             if weights is None:
                 weights = {
-                    "question": 3.0,
-                    "code": 1.0,
-                    "log": 0.5,
-                    "env": 0.3
+                    "description": 0.2,
+                    "steps": 0.15,
+                    "expected": 0.1,
+                    "actual": 0.15,
+                    "code": 0.2,
+                    "log": 0.2,
+                    "env": 0.0
                 }
             
-            if not self.question_index:
-                logger.warning("索引为空，无法搜索")
+            # 确保所有权重都是浮点数
+            weights = {k: float(v) for k, v in weights.items()}
+            logger.debug(f"搜索权重: {weights}")
+            
+            # 如果没有查询向量，返回空结果
+            if not query_vectors:
+                logger.warning("没有提供查询向量，返回空结果")
                 return []
             
-            # 添加原始查询文本到向量字典中
-            if "query_text" in query_vectors:
-                query_vectors = dict(query_vectors)  # 创建副本以避免修改原始数据
+            logger.debug(f"查询向量类型: {list(query_vectors.keys())}")
             
-            # 1. 初筛阶段：文本+代码语义的并行ANN搜索
-            initial_results = self._initial_screening(query_vectors, n_results=200)
+            # 收集所有结果
+            results = {}
             
-            # 2. 粗排阶段：结构特征快速过滤
-            filtered_results = self._coarse_ranking(initial_results, n_results=50)
+            # 获取所有索引中的结果数量
+            total_index_items = 0
+            if self.description_index:
+                total_index_items = max(total_index_items, self.description_index.get_n_items())
             
-            # 3. 精排阶段：符号匹配+加权得分计算
-            final_results = self._fine_ranking(filtered_results, n_results=n_results)
+            # 计算要请求的结果数量 - 确保足够多
+            requested_results = min(max(50, n_results * 10), total_index_items) if total_index_items > 0 else max(50, n_results * 10)
+            logger.info(f"预计返回 {requested_results} 个初始结果进行排序和过滤")
+            
+            # 对每个向量进行搜索
+            if "description_vector" in query_vectors and self.description_index is not None:
+                description_results = self._search_index(self.description_index, query_vectors["description_vector"], 
+                                               requested_results, weights.get("description", 0))
+                results.update(description_results)
+            
+            if "steps_vector" in query_vectors and self.steps_index is not None:
+                steps_results = self._search_index(self.steps_index, query_vectors["steps_vector"], 
+                                               requested_results, weights.get("steps", 0))
+                results.update(steps_results)
+            
+            if "expected_vector" in query_vectors and self.expected_index is not None:
+                expected_results = self._search_index(self.expected_index, query_vectors["expected_vector"], 
+                                               requested_results, weights.get("expected", 0))
+                results.update(expected_results)
+            
+            if "actual_vector" in query_vectors and self.actual_index is not None:
+                actual_results = self._search_index(self.actual_index, query_vectors["actual_vector"], 
+                                               requested_results, weights.get("actual", 0))
+                results.update(actual_results)
+            
+            if "code_vector" in query_vectors and self.code_index is not None:
+                code_results = self._search_index(self.code_index, query_vectors["code_vector"], 
+                                               requested_results, weights.get("code", 0))
+                results.update(code_results)
+            
+            if "log_vector" in query_vectors and self.log_index is not None:
+                log_results = self._search_index(self.log_index, query_vectors["log_vector"], 
+                                               requested_results, weights.get("log", 0))
+                results.update(log_results)
+            
+            if "env_vector" in query_vectors and self.env_index is not None:
+                env_results = self._search_index(self.env_index, query_vectors["env_vector"], 
+                                               requested_results, weights.get("env", 0))
+                results.update(env_results)
+            
+            # 如果没有结果，返回空列表
+            if not results:
+                logger.info("搜索没有找到任何结果")
+                return []
+            
+            logger.info(f"合并索引搜索结果: 找到 {len(results)} 个唯一ID")
+            
+            # 对结果进行排序 - 按距离升序排序（越小越相似）
+            sorted_results = sorted(results.items(), key=lambda x: x[1]["distance"])
+            
+            # 输出前10个结果的ID和距离
+            top_results_info = []
+            for i, (idx, score) in enumerate(sorted_results[:10], 1):
+                top_results_info.append(f"#{i}: ID={idx}, 距离={score['distance']:.4f}")
+            logger.info(f"排序后的前10个结果: {', '.join(top_results_info)}")
+            
+            # 构建有效结果列表 - 从元数据中获取完整信息
+            valid_results = []
+            valid_ids = set()  # 用于去重
+            
+            for idx, score in sorted_results:
+                # 防止重复结果
+                if idx in valid_ids:
+                    continue
+                
+                # 确保索引存在于元数据中
+                str_idx = str(idx)
+                if str_idx in self.metadata["bugs"]:
+                    bug_data = self.metadata["bugs"][str_idx].copy()
+                    bug_data["distance"] = score["distance"]
+                    valid_results.append(bug_data)
+                    valid_ids.add(idx)
+                    
+                    # 当收集到足够多的结果后停止
+                    if len(valid_results) >= min(n_results * 5, 100):
+                        logger.info(f"收集到足够的有效结果: {len(valid_results)}个")
+                        break
+                else:
+                    logger.warning(f"索引 {idx} 在元数据中不存在，跳过")
+            
+            # 确保返回数量不超过请求数量
+            final_results = valid_results[:n_results]
+            logger.info(f"搜索完成，返回 {len(final_results)} 个结果")
+            
+            # 记录返回的结果ID和距离
+            for i, result in enumerate(final_results, 1):
+                logger.info(f"最终结果 #{i}: ID={result['id']}, 距离={result['distance']:.4f}")
             
             return final_results
+            
         except Exception as e:
             logger.error(f"搜索失败: {str(e)}")
             logger.error(f"错误堆栈: {traceback.format_exc()}")
-            raise RuntimeError(f"搜索失败: {str(e)}")
+            # 返回空结果而不是抛出异常
+            return []
     
-    def _initial_screening(self, query_vectors, n_results=200):
-        """初筛阶段：文本+代码语义的并行ANN搜索"""
-        # 获取每个向量的最近邻
-        question_neighbors = self.question_index.get_nns_by_vector(
-            query_vectors["question_vector"], n_results, include_distances=True)
-        code_neighbors = self.code_index.get_nns_by_vector(
-            query_vectors["code_vector"], n_results, include_distances=True)
+    def _search_index(self, index: AnnoyIndex, vector: List[float], n_results: int, weight: float) -> Dict[int, Dict]:
+        """在单个索引中搜索"""
+        if index is None or index.get_n_items() == 0 or weight == 0:
+            return {}
         
-        # 合并结果
-        results = {}
-        for i, (idx, dist) in enumerate(zip(question_neighbors[0], question_neighbors[1])):
-            results[idx] = {"distance": dist * 0.6}  # 文本相似度权重
-        
-        for i, (idx, dist) in enumerate(zip(code_neighbors[0], code_neighbors[1])):
-            if idx in results:
-                results[idx]["distance"] += dist * 0.4  # 代码语义权重
-            else:
-                results[idx] = {"distance": dist * 0.4}
-        
-        # 添加关键词匹配得分
-        query_text = query_vectors.get("query_text", "")
-        if query_text:
-            for idx in list(results.keys()):
-                keyword_score = self._calculate_keyword_score(
-                    query_text, 
-                    self.metadata["questions"][idx],
-                    self.metadata["codes"][idx]
-                )
-                # 将关键词匹配得分与向量相似度得分结合
-                results[idx]["distance"] = results[idx]["distance"] * 0.7 + (1 - keyword_score) * 0.3
-        
-        return sorted(results.items(), key=lambda x: x[1]["distance"])[:n_results]
-    
-    def _calculate_keyword_score(self, query: str, question_data: Dict, code_data: Dict) -> float:
-        """计算关键词匹配得分
-        
-        Args:
-            query: 查询文本
-            question_data: 问题元数据
-            code_data: 代码元数据
-            
-        Returns:
-            float: 匹配得分 (0-1)
-        """
-        # 对查询文本进行分词
-        keywords = set(query.lower().split())
-        
-        # 准备要搜索的文本
-        title = question_data["title"].lower()
-        description = question_data["description"].lower()
-        code = code_data["code"].lower()
-        
-        # 计算每个关键词的匹配情况
-        matches = 0
-        for keyword in keywords:
-            if keyword in title:
-                matches += 2  # 标题匹配权重更高
-            if keyword in description:
-                matches += 1
-            if keyword in code:
-                matches += 1
-        
-        # 计算最终得分
-        max_possible_matches = len(keywords) * 4  # 每个关键词最多可以得到4分
-        if max_possible_matches == 0:
-            return 0.0
-        
-        return min(1.0, matches / max_possible_matches)
-    
-    def _coarse_ranking(self, initial_results, n_results=50):
-        """粗排阶段：结构特征快速过滤"""
-        filtered_results = []
-        for idx, score in initial_results:
-            code_data = self.metadata["codes"][idx]
-            if "features" in code_data and "structure" in code_data["features"]:
-                structure_features = code_data["features"]["structure"]
-                # 根据结构特征进行过滤
-                if self._is_structure_similar(structure_features):
-                    filtered_results.append((idx, score))
-        
-        return filtered_results[:n_results]
-    
-    def _fine_ranking(self, filtered_results, n_results=10):
-        """精排阶段：符号匹配+加权得分计算"""
-        final_results = []
-        for idx, initial_score in filtered_results:
-            code_data = self.metadata["codes"][idx]
-            if "features" in code_data:
-                features = code_data["features"]
-                # 计算符号匹配度
-                symbol_score = self._calculate_symbol_score(features)
-                # 计算最终得分
-                final_score = initial_score["distance"] * 0.7 + symbol_score * 0.3
-                final_results.append((idx, final_score))
-            else:
-                final_results.append((idx, initial_score["distance"]))
-        
-        # 按得分排序并返回结果
-        sorted_results = []
-        for idx, score in sorted(final_results, key=lambda x: x[1])[:n_results]:
-            # 获取完整的 bug 报告信息
-            question_data = self.metadata["questions"][idx]
-            code_data = self.metadata["codes"][idx]
-            env_data = self.metadata["envs"][idx]
-            log_data = self.metadata["logs"][idx]
-            
-            result = {
-                "id": question_data["id"],
-                "title": question_data["title"],
-                "description": question_data["description"],
-                "reproducible": question_data["reproducible"],
-                "steps_to_reproduce": question_data["steps_to_reproduce"],
-                "expected_behavior": question_data["expected_behavior"],
-                "actual_behavior": question_data["actual_behavior"],
-                "code_context": {
-                    "code": code_data["code"],
-                    "file_path": code_data["file_path"],
-                    "line_range": code_data["line_range"],
-                    "language": code_data["language"],
-                    "dependencies": code_data["dependencies"],
-                    "diff": code_data["diff"]
-                },
-                "error_logs": log_data["log"],
-                "environment": {
-                    "runtime_env": env_data["runtime_env"],
-                    "os_info": env_data["os_info"],
-                    "network_env": env_data["network_env"],
-                    "additional_info": env_data["additional_info"]
-                },
-                "created_at": question_data["created_at"],
-                "updated_at": question_data["updated_at"],
-                "tags": question_data["tags"],
-                "distance": score
-            }
-            sorted_results.append(result)
-        
-        return sorted_results
-    
-    def _is_structure_similar(self, structure_features):
-        """判断结构特征是否相似
-        
-        Args:
-            structure_features: 目标代码的结构特征
-            
-        Returns:
-            bool: 是否相似
-        """
-        # 1. 检查控制结构数量是否接近
-        def is_control_count_similar(control_counts: Dict[str, int], threshold: float = 0.5) -> bool:
-            total = sum(control_counts.values())
-            if total == 0:
-                return True
+        try:
+            # 获取索引中项目的总数量
+            total_items = index.get_n_items()
+            if total_items == 0:
+                logger.warning("索引为空，无法搜索")
+                return {}
                 
-            # 计算每种控制结构的比例
-            ratios = {k: v/total for k, v in control_counts.items()}
+            # 确定要返回的结果数量，确保不超过索引中的总数量
+            search_n_results = min(max(50, n_results * 10), total_items)
             
-            # 检查是否有过于主导的控制结构 - 允许更高的阈值
-            return all(ratio <= threshold for ratio in ratios.values())
-        
-        # 2. 检查嵌套深度是否在合理范围
-        def is_depth_reasonable(depth: int, max_depth: int = 8) -> bool:
-            return depth <= max_depth
-        
-        # 3. 检查异常处理是否合理
-        def is_exception_reasonable(handlers: List[Dict]) -> bool:
-            if not handlers:
-                return True
+            logger.info(f"在索引中搜索: 索引项目总数={total_items}, 请求返回={search_n_results}, 权重={weight}")
             
-            # 放宽异常处理的限制
-            if len(handlers) > 8:  # 增加允许的异常处理数量
-                return False
-            
-            # 增加允许的处理器代码行数
-            return all(handler["body_length"] <= 30 for handler in handlers)
-        
-        # 综合判断 - 只要满足两个条件即可
-        conditions = [
-            is_control_count_similar(structure_features["control_structures"]),
-            is_depth_reasonable(structure_features["nesting_depth"]),
-            is_exception_reasonable(structure_features["exception_handlers"])
-        ]
-        
-        return sum(1 for c in conditions if c) >= 2  # 只要满足两个条件即可
-    
-    def _calculate_symbol_score(self, features):
-        """计算符号匹配度得分
-        
-        Args:
-            features: 代码特征字典，包含ast、symbol和structure特征
-            
-        Returns:
-            float: 相似度分数 (0-1)
-        """
-        if "symbol" not in features:
-            return 0.0
-        
-        symbol_features = features["symbol"]
-        
-        # 1. 计算变量命名模式的一致性得分
-        def calculate_pattern_score() -> float:
-            patterns = symbol_features["symbol_patterns"]
-            if not patterns:
-                return 0.0
-            
-            # 计算命名模式的分布
-            total = sum(patterns.values())
-            if total == 0:
-                return 0.0
-            
-            pattern_ratios = {k: v/total for k, v in patterns.items()}
-            
-            # 评估命名一致性 - 如果某个模式占比过高说明命名比较一致
-            max_ratio = max(pattern_ratios.values())
-            return min(max_ratio * 2, 1.0)  # 将比例转换为0-1的分数
-        
-        # 2. 计算标识符长度的合理性得分
-        def calculate_length_score() -> float:
-            all_symbols = (
-                symbol_features["variables"] + 
-                symbol_features["functions"] + 
-                symbol_features["classes"]
+            # 获取最近邻，增加搜索半径，设置include_distances=True表示返回距离信息
+            ids, distances = index.get_nns_by_vector(
+                vector, 
+                search_n_results, 
+                include_distances=True, 
+                search_k=-1  # -1表示检查所有节点，确保尽可能准确的结果
             )
             
-            if not all_symbols:
-                return 0.0
+            # 记录找到的结果数量以及前几个ID
+            logger.info(f"索引搜索结果: 找到 {len(ids)} 个匹配项")
+            if ids:
+                first_ids = ids[:min(5, len(ids))]
+                first_distances = distances[:min(5, len(distances))]
+                id_dist_pairs = [f"({i}:{d:.4f})" for i, d in zip(first_ids, first_distances)]
+                logger.info(f"前5个结果 [ID:距离]: {', '.join(id_dist_pairs)}")
             
-            # 计算平均标识符长度
-            avg_length = sum(len(s) for s in all_symbols) / len(all_symbols)
+            # 返回所有结果，不进行距离过滤，交由搜索函数处理
+            results = {idx: {"distance": dist * weight} for idx, dist in zip(ids, distances)}
+            logger.info(f"返回 {len(results)} 个匹配项的加权结果")
+            return results
             
-            # 标识符长度在2-30个字符之间比较合理
-            if avg_length < 2:
-                return 0.0
-            elif avg_length > 30:
-                return 0.0
-            elif 2 <= avg_length <= 15:  # 最理想的长度范围
-                return 1.0
-            else:  # 15-30的长度，分数线性下降
-                return max(0, (30 - avg_length) / 15)
-        
-        # 3. 计算命名规范性得分
-        def calculate_convention_score() -> float:
-            def is_snake_case(s: str) -> bool:
-                return s.islower() and "_" in s
-            
-            def is_camel_case(s: str) -> bool:
-                return not s[0].isupper() and not "_" in s and not s.islower()
-            
-            def is_pascal_case(s: str) -> bool:
-                return s[0].isupper() and not "_" in s
-            
-            all_symbols = (
-                symbol_features["variables"] + 
-                symbol_features["functions"] + 
-                symbol_features["classes"]
-            )
-            
-            if not all_symbols:
-                return 0.0
-            
-            # 统计各种命名规范的使用数量
-            conventions = {
-                "snake": sum(1 for s in all_symbols if is_snake_case(s)),
-                "camel": sum(1 for s in all_symbols if is_camel_case(s)),
-                "pascal": sum(1 for s in all_symbols if is_pascal_case(s))
-            }
-            
-            # 计算主导的命名规范的比例
-            total = sum(conventions.values())
-            if total == 0:
-                return 0.0
-            
-            max_convention_ratio = max(conventions.values()) / total
-            return max_convention_ratio
-        
-        # 综合三个维度的得分
-        pattern_score = calculate_pattern_score()
-        length_score = calculate_length_score()
-        convention_score = calculate_convention_score()
-        
-        # 加权平均
-        weights = {
-            "pattern": 0.4,      # 命名模式一致性权重
-            "length": 0.3,       # 标识符长度合理性权重
-            "convention": 0.3    # 命名规范性权重
-        }
-        
-        final_score = (
-            pattern_score * weights["pattern"] +
-            length_score * weights["length"] +
-            convention_score * weights["convention"]
-        )
-        
-        return final_score
+        except Exception as e:
+            logger.error(f"搜索索引失败: {str(e)}")
+            logger.error(f"错误堆栈: {traceback.format_exc()}")
+            # 返回空结果而不是抛出异常
+            return {}

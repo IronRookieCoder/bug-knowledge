@@ -1,201 +1,228 @@
 {% extends "base.html" %} {% block title %}搜索BUG - {{ super() }}{% endblock %}
 {% block content %}
-<div class="row">
-  <div class="col-md-4">
-    <div class="card">
-      <div class="card-body">
-        <h5 class="card-title">搜索BUG</h5>
+<h2 class="page-header"><i class="bi bi-search"></i> BUG知识库搜索</h2>
+
+<div class="card">
+    <div class="card-header">
+        <h5 class="mb-0">搜索条件</h5>
+    </div>
+    <div class="card-body">
         <form id="searchForm">
-          <div class="mb-3">
-            <label for="query" class="form-label">问题描述</label>
-            <textarea
-              class="form-control"
-              id="query"
-              name="query"
-              rows="3"
-            ></textarea>
-          </div>
-
-          <div class="mb-3">
-            <label for="code" class="form-label">代码片段</label>
-            <textarea
-              class="form-control"
-              id="code"
-              name="code"
-              rows="3"
-            ></textarea>
-          </div>
-
-          <div class="mb-3">
-            <label for="error_log" class="form-label">错误日志</label>
-            <textarea
-              class="form-control"
-              id="error_log"
-              name="error_log"
-              rows="3"
-            ></textarea>
-          </div>
-
-          <div class="mb-3">
-            <label for="env_info" class="form-label">环境信息</label>
-            <textarea
-              class="form-control"
-              id="env_info"
-              name="env_info"
-              rows="2"
-            ></textarea>
-          </div>
-
-          <div class="mb-3">
-            <label for="n_results" class="form-label">返回结果数量</label>
-            <input
-              type="number"
-              class="form-control"
-              id="n_results"
-              name="n_results"
-              value="5"
-              min="1"
-              max="20"
-            />
-          </div>
-
-          <button type="submit" class="btn btn-primary">搜索</button>
-        </form>
-      </div>
-    </div>
-  </div>
-
-  <div class="col-md-8">
-    <div id="results" class="d-none">
-      <h3>搜索结果</h3>
-      <div id="resultsList"></div>
-    </div>
-  </div>
-</div>
-{% endblock %} {% block scripts %}
-<script>
-  document
-    .getElementById("searchForm")
-    .addEventListener("submit", async function (e) {
-      e.preventDefault();
-
-      const formData = new FormData(this);
-      const resultsDiv = document.getElementById("results");
-      const resultsList = document.getElementById("resultsList");
-
-      try {
-        const response = await fetch("/search", {
-          method: "POST",
-          body: formData,
-        });
-
-        const data = await response.json();
-
-        // 显示结果区域
-        resultsDiv.classList.remove("d-none");
-
-        if (!response.ok) {
-          throw new Error(data.error || data.detail || "搜索请求失败");
-        }
-
-        if (data.results && data.results.length > 0) {
-          // 根据相似度排序（distance越小越相似）
-          const sortedResults = data.results.sort(
-            (a, b) => a.distance - b.distance
-          );
-
-          resultsList.innerHTML = sortedResults
-            .map(
-              (bug) => `
-                <div class="card mb-3">
-                    <div class="card-body">
-                        <div class="d-flex justify-content-between align-items-start">
-                            <h5 class="card-title">${bug.title}</h5>
-                            <span class="badge bg-primary">相似度: ${(
-                              1 - bug.distance
-                            ).toFixed(2)}</span>
+            <ul class="nav nav-tabs" role="tablist">
+                <li class="nav-item">
+                    <a class="nav-link active" data-bs-toggle="tab" href="#basicInfo">
+                        <i class="bi bi-info-circle"></i> 基本信息
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" data-bs-toggle="tab" href="#codeTab">
+                        <i class="bi bi-code-square"></i> 代码信息
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" data-bs-toggle="tab" href="#errorTab">
+                        <i class="bi bi-exclamation-triangle"></i> 错误日志
+                    </a>
+                </li>
+            </ul>
+            
+            <div class="tab-content mt-3">
+                <div id="basicInfo" class="tab-pane active">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label for="description" class="form-label">问题描述</label>
+                                <textarea class="form-control" id="description" name="description" rows="3" placeholder="请详细描述问题"></textarea>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="steps" class="form-label">重现步骤</label>
+                                <textarea class="form-control" id="steps" name="steps_to_reproduce" rows="3" placeholder="请描述如何重现这个问题"></textarea>
+                            </div>
                         </div>
-                        <h6 class="card-subtitle mb-2 text-muted">ID: ${
-                          bug.id
-                        }</h6>
-                        <p class="card-text">${bug.description}</p>
-                        
-                        <div class="accordion" id="accordion-${bug.id}">
-                            <div class="accordion-item">
-                                <h2 class="accordion-header">
-                                    <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-${
-                                      bug.id
-                                    }">
-                                        查看详情
-                                    </button>
-                                </h2>
-                                <div id="collapse-${
-                                  bug.id
-                                }" class="accordion-collapse collapse">
-                                    <div class="accordion-body">
-                                        <h6>重现步骤：</h6>
-                                        <ol>
-                                            ${(bug.steps_to_reproduce || [])
-                                              .map((step) => `<li>${step}</li>`)
-                                              .join("")}
-                                        </ol>
-                                        
-                                        <h6>期望行为：</h6>
-                                        <p>${bug.expected_behavior || "无"}</p>
-                                        
-                                        <h6>实际行为：</h6>
-                                        <p>${bug.actual_behavior || "无"}</p>
-                                        
-                                        <h6>问题代码：</h6>
-                                        <pre><code>${
-                                          bug.code_context?.code || "无"
-                                        }</code></pre>
-                                        
-                                        <h6>错误日志：</h6>
-                                        <pre><code>${
-                                          bug.error_logs || "无"
-                                        }</code></pre>
-                                        
-                                        <h6>环境信息：</h6>
-                                        <ul>
-                                            <li>运行时环境：${
-                                              bug.environment?.runtime_env ||
-                                              "无"
-                                            }</li>
-                                            <li>操作系统：${
-                                              bug.environment?.os_info || "无"
-                                            }</li>
-                                            ${
-                                              bug.environment?.network_env
-                                                ? `<li>网络环境：${bug.environment.network_env}</li>`
-                                                : ""
-                                            }
-                                        </ul>
-                                    </div>
-                                </div>
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label for="expected" class="form-label">期望结果</label>
+                                <textarea class="form-control" id="expected" name="expected_behavior" rows="3" placeholder="请描述期望的结果"></textarea>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="actual" class="form-label">实际结果</label>
+                                <textarea class="form-control" id="actual" name="actual_behavior" rows="3" placeholder="请描述实际的结果"></textarea>
                             </div>
                         </div>
                     </div>
                 </div>
-            `
-            )
-            .join("");
-        } else {
-          resultsList.innerHTML =
-            '<div class="alert alert-warning">未找到相关BUG记录</div>';
+                
+                <div id="codeTab" class="tab-pane fade">
+                    <div class="form-group">
+                        <label for="code" class="form-label">相关代码</label>
+                        <textarea class="form-control" id="code" name="code" rows="10" placeholder="请粘贴相关代码"></textarea>
+                    </div>
+                </div>
+                
+                <div id="errorTab" class="tab-pane fade">
+                    <div class="form-group">
+                        <label for="errorLogs" class="form-label">错误日志</label>
+                        <textarea class="form-control" id="errorLogs" name="error_logs" rows="10" placeholder="请粘贴错误日志"></textarea>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="row mt-4">
+                <div class="col-md-4">
+                    <div class="form-group">
+                        <label for="nResults" class="form-label">返回结果数量</label>
+                        <input type="number" class="form-control" id="nResults" name="n_results" value="5" min="1" max="20">
+                    </div>
+                </div>
+                <div class="col-md-8 text-end">
+                    <button type="submit" class="btn btn-primary">
+                        <i class="bi bi-search"></i> 搜索
+                    </button>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div id="loading" class="text-center my-4 d-none">
+    <div class="spinner-border text-primary" role="status">
+        <span class="visually-hidden">加载中...</span>
+    </div>
+    <p class="mt-2">正在搜索相关BUG...</p>
+</div>
+
+<div id="searchResults" class="search-results"></div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.getElementById('searchForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        
+        const form = e.target;
+        const formData = new FormData(form);
+        const loading = document.getElementById('loading');
+        const resultsDiv = document.getElementById('searchResults');
+        
+        // 显示加载状态
+        loading.classList.remove('d-none');
+        resultsDiv.innerHTML = '';
+        
+        try {
+            const response = await fetch('/api/search', {
+                method: 'POST',
+                body: formData
+            });
+            
+            const data = await response.json();
+            
+            // 隐藏加载状态
+            loading.classList.add('d-none');
+            
+            if (data.status === 'error') {
+                throw new Error(data.message);
+            }
+            
+            if (data.results.length === 0) {
+                resultsDiv.innerHTML = `
+                    <div class="alert alert-info">
+                        <i class="bi bi-info-circle"></i> 未找到相关BUG
+                    </div>
+                `;
+                return;
+            }
+            
+            // 显示搜索结果数量
+            resultsDiv.innerHTML = `
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="bi bi-list-ul"></i> 搜索结果 (${data.results.length})</h5>
+                    </div>
+                    <div class="card-body" id="resultsContainer"></div>
+                    </div>
+            `;
+            
+            const resultsContainer = document.getElementById('resultsContainer');
+            
+            data.results.forEach((result, index) => {
+                // 计算相似度百分比
+                const similarity = (1 - result.distance) * 100;
+                
+                // 确定相似度徽章颜色
+                let badgeClass = 'bg-danger';
+                if (similarity >= 70) {
+                    badgeClass = 'bg-success';
+                } else if (similarity >= 40) {
+                    badgeClass = 'bg-warning text-dark';
+                }
+                
+                const resultHtml = `
+                    <div class="result-item border-bottom ${index > 0 ? 'border-top-0' : ''}">
+                        <div class="d-flex justify-content-between align-items-start mb-3">
+                            <h5 class="mb-0">BUG #${result.id}</h5>
+                            <span class="badge ${badgeClass}">
+                                相似度: ${similarity.toFixed(1)}%
+                            </span>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <strong>问题描述：</strong>
+                            <p>${result.description || '无'}</p>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <strong>重现步骤：</strong>
+                            <p>${Array.isArray(result.steps_to_reproduce) ? result.steps_to_reproduce.join('<br>') : (result.steps_to_reproduce || '无')}</p>
+                        </div>
+                        
+                        <div class="row mb-3">
+                            <div class="col-md-6">
+                                <strong>期望结果：</strong>
+                                <p>${result.expected_behavior || '无'}</p>
+                            </div>
+                            <div class="col-md-6">
+                                <strong>实际结果：</strong>
+                                <p>${result.actual_behavior || '无'}</p>
+                                </div>
+                            </div>
+                        
+                        ${result.code_context && result.code_context.code ? `
+                            <div class="mb-3">
+                                <strong>相关代码：</strong>
+                                <div class="code-block">${result.code_context.code}</div>
+                        </div>
+                        ` : ''}
+                        
+                        ${result.error_logs ? `
+                            <div class="mb-3">
+                                <strong>错误日志：</strong>
+                                <div class="error-log">${result.error_logs}</div>
+                    </div>
+                        ` : ''}
+                        
+                        <div class="text-muted">
+                            <small>
+                                创建时间：${new Date(result.created_at).toLocaleString()}
+                                | 更新时间：${new Date(result.updated_at).toLocaleString()}
+                            </small>
+                </div>
+            </div>
+                `;
+                resultsContainer.innerHTML += resultHtml;
+            });
+            
+        } catch (error) {
+            // 隐藏加载状态
+            loading.classList.add('d-none');
+            
+            document.getElementById('searchResults').innerHTML = `
+                <div class="alert alert-danger">
+                    <i class="bi bi-exclamation-triangle"></i> 搜索失败：${error.message}
+                </div>
+            `;
         }
-      } catch (error) {
-        console.error("Error:", error);
-        resultsDiv.classList.remove("d-none");
-        resultsList.innerHTML = `
-          <div class="alert alert-danger">
-            <h5>搜索失败</h5>
-            <p>${error.message}</p>
-            <hr>
-            <p class="mb-0">请检查输入并重试</p>
-          </div>
-        `;
-      }
     });
 </script>
 {% endblock %}

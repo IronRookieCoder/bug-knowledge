@@ -109,139 +109,220 @@ def create_web_app(searcher: BugSearcher, config: AppConfig) -> FastAPI:
     async def search_page(request: Request):
         return templates.TemplateResponse("search.html", {"request": request})
 
-    @app.post("/search")
+    @app.post("/api/search")
     async def search_bugs(
-        query: str = Form(""),
+        description: str = Form(""),
+        steps_to_reproduce: str = Form(""),
+        expected_behavior: str = Form(""),
+        actual_behavior: str = Form(""),
         code: str = Form(""),
-        error_log: str = Form(""),
-        env_info: str = Form(""),
+        error_logs: str = Form(""),
         n_results: int = Form(5)
     ):
+        """搜索BUG"""
         try:
+            # 记录搜索参数
+            logger.info("收到搜索请求:")
+            logger.info(f"  - 描述: {description[:50]}..." if len(description) > 50 else f"  - 描述: {description}")
+            logger.info(f"  - 重现步骤长度: {len(steps_to_reproduce)}")
+            logger.info(f"  - 期望行为长度: {len(expected_behavior)}")
+            logger.info(f"  - 实际行为长度: {len(actual_behavior)}")
+            logger.info(f"  - 代码长度: {len(code)}")
+            logger.info(f"  - 错误日志长度: {len(error_logs)}")
+            logger.info(f"  - 请求结果数量: {n_results}")
+
+            # 检查每个字段是否有内容
+            has_content = {
+                "description": bool(description.strip()),
+                "steps": bool(steps_to_reproduce.strip()),
+                "expected": bool(expected_behavior.strip()),
+                "actual": bool(actual_behavior.strip()),
+                "code": bool(code.strip()),
+                "log": bool(error_logs.strip())
+            }
+            
+            logger.info(f"搜索字段内容状态: {has_content}")
+            
+            # 如果没有任何输入
+            if not any(has_content.values()):
+                logger.warning("没有提供任何搜索条件")
+                return {"status": "error", "message": "请至少输入一个搜索条件"}
+            
+            # 根据输入内容的类型动态调整权重
+            weights = {}
+            
+            # 如果只有代码
+            if has_content["code"] and not any(v for k, v in has_content.items() if k != "code"):
+                weights = {
+                    "description": 0.0,
+                    "steps": 0.0,
+                    "expected": 0.0,
+                    "actual": 0.0,
+                    "code": 0.8,
+                    "log": 0.2,
+                    "env": 0.0
+                }
+                logger.info("使用代码特化权重")
+            
+            # 如果只有错误日志
+            elif has_content["log"] and not any(v for k, v in has_content.items() if k != "log"):
+                weights = {
+                    "description": 0.1,
+                    "steps": 0.0,
+                    "expected": 0.0,
+                    "actual": 0.0,
+                    "code": 0.3,
+                    "log": 0.6,
+                    "env": 0.0
+                }
+                logger.info("使用错误日志特化权重")
+            
+            # 如果只有问题描述相关字段
+            elif any(has_content[k] for k in ["description", "steps", "expected", "actual"]) and not (has_content["code"] or has_content["log"]):
+                total = sum(has_content[k] for k in ["description", "steps", "expected", "actual"])
+                base_weight = 1.0 / total if total > 0 else 0
+                weights = {
+                    "description": base_weight if has_content["description"] else 0.0,
+                    "steps": base_weight if has_content["steps"] else 0.0,
+                    "expected": base_weight if has_content["expected"] else 0.0,
+                    "actual": base_weight if has_content["actual"] else 0.0,
+                    "code": 0.0,
+                    "log": 0.0,
+                    "env": 0.0
+                }
+                logger.info("使用问题描述特化权重")
+            
+            # 如果同时包含代码和错误日志
+            elif has_content["code"] and has_content["log"]:
+                weights = {
+                    "description": 0.1 if has_content["description"] else 0.0,
+                    "steps": 0.1 if has_content["steps"] else 0.0,
+                    "expected": 0.05 if has_content["expected"] else 0.0,
+                    "actual": 0.05 if has_content["actual"] else 0.0,
+                    "code": 0.4,
+                    "log": 0.3,
+                    "env": 0.0
+                }
+                logger.info("使用代码+错误日志特化权重")
+            
+            # 如果包含代码和问题描述
+            elif has_content["code"] and any(has_content[k] for k in ["description", "steps", "expected", "actual"]):
+                weights = {
+                    "description": 0.2 if has_content["description"] else 0.0,
+                    "steps": 0.15 if has_content["steps"] else 0.0,
+                    "expected": 0.1 if has_content["expected"] else 0.0,
+                    "actual": 0.15 if has_content["actual"] else 0.0,
+                    "code": 0.4,
+                    "log": 0.0,
+                    "env": 0.0
+                }
+                logger.info("使用代码+问题描述特化权重")
+            
+            # 如果包含错误日志和问题描述
+            elif has_content["log"] and any(has_content[k] for k in ["description", "steps", "expected", "actual"]):
+                weights = {
+                    "description": 0.2 if has_content["description"] else 0.0,
+                    "steps": 0.15 if has_content["steps"] else 0.0,
+                    "expected": 0.1 if has_content["expected"] else 0.0,
+                    "actual": 0.15 if has_content["actual"] else 0.0,
+                    "code": 0.0,
+                    "log": 0.4,
+                    "env": 0.0
+                }
+                logger.info("使用错误日志+问题描述特化权重")
+            
+            # 默认权重（混合场景）
+            else:
+                weights = {
+                    "description": 0.2 if has_content["description"] else 0.0,
+                    "steps": 0.15 if has_content["steps"] else 0.0,
+                    "expected": 0.1 if has_content["expected"] else 0.0,
+                    "actual": 0.15 if has_content["actual"] else 0.0,
+                    "code": 0.2 if has_content["code"] else 0.0,
+                    "log": 0.2 if has_content["log"] else 0.0,
+                    "env": 0.0
+                }
+                logger.info("使用默认混合权重")
+            
+            # 重新归一化权重，确保总和为1
+            total_weight = sum(weights.values())
+            if total_weight > 0:
+                weights = {k: v/total_weight for k, v in weights.items()}
+            
+            logger.info(f"最终搜索权重: {weights}")
+            
+            # 获取搜索结果, 请求更多结果
+            actual_n_results = max(n_results * 2, 10)  # 至少请求10个结果
+            logger.info(f"执行搜索, 请求 {actual_n_results} 个结果")
+            
             results = searcher.search(
-                query_text=query,
+                query_text=description,
                 code_snippet=code,
-                error_log=error_log,
-                env_info=env_info,
-                n_results=n_results
+                error_log=error_logs,
+                env_info="",
+                weights=weights,
+                n_results=actual_n_results
             )
-            return {"results": results}
+            
+            logger.info(f"搜索完成, 获得 {len(results)} 个结果")
+            
+            # 记录详细的搜索结果信息
+            if results:
+                result_ids = [r["id"] for r in results[:min(10, len(results))]]
+                logger.info(f"搜索结果ID: {result_ids}")
+                # 记录每个结果的相似度得分
+                for i, result in enumerate(results[:min(5, len(results))], 1):
+                    logger.info(f"结果 #{i}: ID={result['id']}, 距离={result['distance']}")
+            
+            # 只返回用户请求的结果数量
+            final_results = results[:n_results] if len(results) > n_results else results
+            logger.info(f"最终返回 {len(final_results)} 个结果")
+            
+            return {"status": "success", "results": final_results}
+            
         except Exception as e:
             logger.error(f"搜索失败: {str(e)}")
             logger.error(f"错误堆栈: {traceback.format_exc()}")
-            return JSONResponse(
-                status_code=500,
-                content={"error": "搜索失败，请重试", "detail": str(e)}
-            )
+            return {"status": "error", "message": str(e)}
     
     return app
 
-def start_web_app(
-    searcher: BugSearcher,
-    config: AppConfig,
-    host: str = "127.0.0.1",
-    port: int = 8000,
-    reload: bool = True,  # 默认启用热更新
-    reload_dirs: List[str] = None,  # 添加监视目录参数
-    reload_includes: List[str] = None,  # 添加监视文件类型参数
-    reload_excludes: List[str] = None  # 添加排除文件类型参数
-):
-    """启动Web应用
-    
-    Args:
-        searcher: BugSearcher实例
-        config: 应用配置
-        host: 服务器主机地址
-        port: 服务器端口
-        reload: 是否启用热更新
-        reload_dirs: 要监视的目录列表
-        reload_includes: 要监视的文件类型列表
-        reload_excludes: 要排除的文件类型列表
-    """
+def start_web_app(searcher: BugSearcher, config: AppConfig, host: str = "127.0.0.1", 
+                port: int = 8000, reload: bool = False, reload_dirs: List[str] = None,
+                reload_includes: List[str] = None, reload_excludes: List[str] = None):
+    """启动Web应用"""
     try:
-        # 创建临时目录
-        temp_dir = tempfile.mkdtemp(prefix='bug_knowledge_')
-        
-        # 保存向量存储的状态
+        # 获取向量存储实例
         vector_store = searcher.vector_store
-        indices_dir = os.path.join(temp_dir, "indices")
-        os.makedirs(indices_dir, exist_ok=True)
         
-        # 保存索引文件
-        if vector_store.question_index:
-            vector_store.question_index.save(os.path.join(indices_dir, "question.ann"))
-        if vector_store.code_index:
-            vector_store.code_index.save(os.path.join(indices_dir, "code.ann"))
-        if vector_store.log_index:
-            vector_store.log_index.save(os.path.join(indices_dir, "log.ann"))
-        if vector_store.env_index:
-            vector_store.env_index.save(os.path.join(indices_dir, "env.ann"))
+        # 创建FastAPI应用
+        app = create_web_app(searcher, config)
         
-        # 保存元数据
-        with open(os.path.join(temp_dir, "metadata.json"), 'w', encoding='utf-8') as f:
-            json.dump(vector_store.metadata, f, ensure_ascii=False, indent=2)
+        # 配置热重载选项
+        reload_config = None
+        if reload:
+            reload_config = {
+                "reload": True,
+                "reload_dirs": reload_dirs or ["src"],
+                "reload_includes": reload_includes or ["*.py"],
+                "reload_excludes": reload_excludes or ["*.pyc", "__pycache__"]
+            }
         
-        # 保存配置
-        with open(os.path.join(temp_dir, "config.pkl"), 'wb') as f:
-            # 只序列化配置对象，不包含 Annoy 索引
-            pickle.dump(config, f)
+        # 启动服务器
+        uvicorn.run(
+            app,
+            host=host,
+            port=port,
+            **({} if reload_config is None else reload_config)
+        )
         
-        # 将临时目录路径保存到环境变量
-        os.environ['BUG_KNOWLEDGE_TEMP_DIR'] = temp_dir
-        
-        # 查找可用端口
-        try:
-            available_port = find_available_port(port, port + 99)
-            if available_port != port:
-                logger.warning(f"端口 {port} 已被占用，使用端口 {available_port}")
-                port = available_port
-        except RuntimeError as e:
-            logger.error(str(e))
-            return
-        
-        # 在后台线程中打开浏览器
-        def open_browser():
-            time.sleep(2)  # 等待服务器完全启动
-            webbrowser.open(f"http://{host}:{port}")
-        
-        threading.Thread(target=open_browser, daemon=True).start()
-        
-        # 设置默认的监视配置
-        if reload_dirs is None:
-            reload_dirs = ["src", "mock"]
-        if reload_includes is None:
-            reload_includes = ["*.py", "*.html", "*.js", "*.css"]
-        if reload_excludes is None:
-            reload_excludes = ["*.pyc", "__pycache__", "*.pyo", "*.pyd"]
-        
-        try:
-            # 启动服务器，使用导入字符串而不是应用实例
-            uvicorn.run(
-                "src.ui.web:create_app",
-                host=host,
-                port=port,
-                reload=reload,
-                reload_dirs=reload_dirs,
-                reload_delay=0.25,  # 减少重载延迟
-                reload_includes=reload_includes,
-                reload_excludes=reload_excludes,
-                workers=1,  # 单进程模式，确保热重载正常工作
-                log_level="info"
-            )
-        finally:
-            # 清理临时目录
-            try:
-                shutil.rmtree(temp_dir)
-            except:
-                pass
-            
     except Exception as e:
         logger.error(f"启动Web应用失败: {str(e)}")
         logger.error(f"错误堆栈: {traceback.format_exc()}")
         raise RuntimeError(f"启动Web应用失败: {str(e)}")
 
 # 为热重载创建一个工厂函数
-def create_app():
+def create_app(searcher: BugSearcher, config: AppConfig) -> FastAPI:
     """创建FastAPI应用的工厂函数"""
     try:
         # 从环境变量获取临时目录路径
