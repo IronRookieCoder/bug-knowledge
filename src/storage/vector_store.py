@@ -184,106 +184,188 @@ class VectorStore:
             # Depending on the error, you might want to raise it
             # raise RuntimeError(f"保存索引和元数据失败: {str(e)}")
 
-    # _build_and_save_index remains largely the same, ensure build() is called correctly
-    def _build_and_save_index(self, index: Optional[AnnoyIndex], name: str):
-        """构建并保存单个索引"""
+    def _build_and_save_index(self, index: Optional[AnnoyIndex], name: str) -> Optional[AnnoyIndex]:
+        """
+        构建、保存、卸载并重新加载单个索引。
+        返回重新加载后的索引对象，如果失败则返回 None。
+        """
         if index is None:
             logger.warning(f"索引 {name} 实例为 None，无法构建或保存。")
-            return
+            return None # Return None if input index is None
 
-        # Check item count before building
         num_items = index.get_n_items()
+        final_path = self._get_index_path(name) # Get final path early
+
         if num_items <= 0:
             logger.info(f"索引 {name} 为空 (包含 {num_items} 个项目)，跳过构建和保存。")
-            # Optionally delete the existing .ann file if it exists and the index is now empty
-            index_path = self._get_index_path(name)
-            if os.path.exists(index_path):
+            # Delete existing file if index is now empty
+            if os.path.exists(final_path):
                 try:
-                    os.remove(index_path)
-                    logger.info(f"删除了空的旧索引文件: {index_path}")
+                    os.remove(final_path)
+                    logger.info(f"删除了空的旧索引文件: {final_path}")
                 except OSError as e:
-                    logger.warning(f"无法删除空的旧索引文件 {index_path}: {e}")
-            return
+                    logger.warning(f"无法删除空的旧索引文件 {final_path}: {e}")
+            return None # Return None for empty index, caller should handle
 
         logger.info(f"开始构建索引 {name} (包含 {num_items} 个项目)...")
         start_build_time = time.time()
         try:
-            # --- 构建索引 ---
-            # num_trees: 10 is a starting point, might need tuning
-            # Use -1 for n_jobs to use all available CPU cores, potentially speeding up build
             index.build(10, n_jobs=-1)
             build_duration = time.time() - start_build_time
             logger.info(f"索引 {name} 构建完成，耗时: {build_duration:.2f} 秒。")
-
         except Exception as e:
             logger.error(f"构建索引 {name} 失败: {str(e)}")
             logger.error(f"错误堆栈: {traceback.format_exc()}")
-            return # Do not proceed to save if build failed
+            return None # Return None if build fails
 
         logger.info(f"开始保存索引 {name}...")
         start_save_time = time.time()
 
-        # --- 保存索引 (使用临时文件和原子替换) ---
         temp_dir = os.path.join(self.data_dir, "temp")
-        os.makedirs(temp_dir, exist_ok=True) # Ensure temp dir exists
+        os.makedirs(temp_dir, exist_ok=True)
 
-        timestamp = int(time.time() * 1000) # Higher resolution timestamp
+        timestamp = int(time.time() * 1000)
         temp_path = os.path.join(temp_dir, f"{name}_{timestamp}.ann.tmp")
-        final_path = self._get_index_path(name)
-        # backup_path = os.path.join(self.data_dir, f"{name}.ann.bak") # Backup logic seems complex and maybe error-prone, simplify first
 
+        reloaded_index: Optional[AnnoyIndex] = None
         try:
-            # Save to temporary file first
+            # 1. Save to temporary file
             index.save(temp_path)
             save_duration = time.time() - start_save_time
             logger.info(f"索引 {name} 已保存到临时文件 {temp_path}，耗时: {save_duration:.2f} 秒。")
 
-            # Atomically replace the final file with the temporary file
-            # Use shutil.move for better cross-platform compatibility than os.replace/rename chain
-            try:
-                shutil.move(temp_path, final_path)
-                logger.info(f"成功将临时索引移动到最终位置: {final_path}")
-            except Exception as move_e:
-                logger.error(f"移动索引文件 {temp_path} 到 {final_path} 失败: {move_e}")
-                # Attempt cleanup of temp file if move fails?
-                try:
-                    os.remove(temp_path)
-                except OSError:
-                    pass # Ignore cleanup error
-                raise RuntimeError(f"无法更新索引文件 {final_path}") from move_e
+            # 2. Explicitly unload to release file handles
+            index.unload()
+            logger.info(f"索引 {name} 已从内存卸载以释放文件句柄。")
 
-            # Unload the index from memory after saving? Optional, depends on usage pattern.
-            # index.unload()
-            # logger.info(f"索引 {name} 已从内存卸载。")
+            # Brief pause might still be helpful occasionally on Windows
+            # time.sleep(0.05)
+
+            # 3. Atomically replace the final file
+            try:
+                os.replace(temp_path, final_path)
+                logger.info(f"成功将临时索引替换到最终位置: {final_path}")
+            except Exception as replace_e:
+                logger.error(f"替换索引文件 {temp_path} 到 {final_path} 失败: {replace_e}")
+                raise RuntimeError(f"无法更新索引文件 {final_path}") from replace_e
+
+            # --- >>> 关键步骤：重新加载索引 <<< ---
+            # 4. Reload the index from the final path into a new instance
+            try:
+                logger.info(f"尝试从 {final_path} 重新加载索引 {name}...")
+                reloaded_index = AnnoyIndex(self.vector_dim, self.index_type)
+                reloaded_index.load(final_path)
+                # Optional: Prefaulting can sometimes speed up the *first* query after load
+                # reloaded_index.load(final_path, prefault=True)
+                logger.info(f"索引 {name} 重新加载成功，包含 {reloaded_index.get_n_items()} 个项目。")
+            except Exception as reload_e:
+                logger.error(f"重新加载索引 {name} 从 {final_path} 失败: {reload_e}")
+                # Decide how critical this is. If reload fails, the in-memory index is lost.
+                reloaded_index = None # Ensure it's None if reload fails
+                # Maybe raise an error here? Or just log and return None?
+                # Let's log and return None for now.
+            # --- >>> 结束重新加载 <<< ---
+
+            return reloaded_index # Return the newly loaded index (or None if reload failed)
 
         except Exception as e:
-            logger.error(f"保存索引 {name} 到文件失败: {str(e)}")
+            logger.error(f"保存、替换或重新加载索引 {name} 过程中失败: {str(e)}")
             logger.error(f"错误堆栈: {traceback.format_exc()}")
             # Clean up temporary file if it exists
             if os.path.exists(temp_path):
                 try:
                     os.remove(temp_path)
-                    logger.info(f"已删除失败保存的临时索引文件: {temp_path}")
+                    logger.info(f"已删除失败过程中的临时索引文件: {temp_path}")
                 except OSError as rm_e:
                     logger.warning(f"删除临时索引文件 {temp_path} 失败: {rm_e}")
-            # Re-raise or handle error appropriately
-            raise
+            return None # Return None on failure
 
 
-    def add_bug_report(self, bug_report: BugReport, vectors: Dict[str, Any]):
+    def _save_indices(self):
+        """保存索引和元数据，并更新内存中的索引实例为重新加载后的版本"""
+        logger.info("开始保存索引和元数据...")
+        try:
+            # --- 保存元数据 (保持不变) ---
+            # ... (元数据保存逻辑) ...
+            metadata_copy = {
+                "bugs": {},
+                "next_id": self.metadata["next_id"]
+            }
+            for bug_id, bug_data in self.metadata["bugs"].items():
+                 # Basic serialization, improve if needed
+                 metadata_copy["bugs"][bug_id] = bug_data if isinstance(bug_data, dict) else vars(bug_data)
+
+            metadata_path = os.path.join(self.data_dir, "metadata.json")
+            temp_metadata_path = os.path.join(self.data_dir, "temp", f"metadata_{int(time.time())}.json.tmp")
+
+            with open(temp_metadata_path, 'w', encoding='utf-8') as f:
+                json.dump(metadata_copy, f, ensure_ascii=False, indent=2)
+
+            try:
+                 os.replace(temp_metadata_path, metadata_path)
+                 logger.info("元数据保存成功。")
+            except OSError as e:
+                 logger.error(f"原子替换元数据文件失败: {e}. 尝试 shutil.move...")
+                 try:
+                     shutil.move(temp_metadata_path, metadata_path)
+                     logger.info("元数据通过 shutil.move 保存成功。")
+                 except Exception as move_e:
+                     logger.error(f"使用 shutil.move 保存元数据也失败: {move_e}")
+
+
+            # --- 构建、保存、卸载并重新加载索引 ---
+            indices_to_process = { # Use a dict for easier update
+                "summary": self.summary_index,
+                "test_steps": self.test_steps_index,
+                "expected_result": self.expected_result_index,
+                "actual_result": self.actual_result_index,
+                "code": self.code_index,
+                "log_info": self.log_info_index,
+                "environment": self.environment_index
+            }
+
+            new_loaded_indices: Dict[str, Optional[AnnoyIndex]] = {}
+
+            for name, index_instance in indices_to_process.items():
+                try:
+                    # Call build/save/unload/reload function
+                    reloaded_instance = self._build_and_save_index(index_instance, name)
+                    # Store the result (which is the reloaded index or None)
+                    new_loaded_indices[name] = reloaded_instance
+                except Exception as e:
+                    logger.error(f"处理索引 {name} 时发生意外错误: {str(e)}")
+                    logger.error(f"错误堆栈: {traceback.format_exc()}")
+                    new_loaded_indices[name] = None # Ensure it's None on error
+
+            # --- >>> 关键：更新类实例的索引属性 <<< ---
+            self.summary_index = new_loaded_indices.get("summary")
+            self.test_steps_index = new_loaded_indices.get("test_steps")
+            self.expected_result_index = new_loaded_indices.get("expected_result")
+            self.actual_result_index = new_loaded_indices.get("actual_result")
+            self.code_index = new_loaded_indices.get("code")
+            self.log_info_index = new_loaded_indices.get("log_info")
+            self.environment_index = new_loaded_indices.get("environment")
+            logger.info("内存中的索引实例已更新为重新加载后的版本。")
+            # --- >>> 结束更新 <<< ---
+
+            logger.info("所有索引处理和元数据保存完成。")
+
+        except Exception as e:
+            logger.error(f"保存索引和元数据过程中发生顶层错误: {str(e)}")
+            logger.error(f"错误堆栈: {traceback.format_exc()}")
+
+
+    def add_bug_report(self, bug_report: Any, vectors: Dict[str, Any]): # Changed BugReport type hint
         """
         添加单个bug报告及其向量到索引。
-        这将加载现有索引，将所有旧向量和新向量添加到一个新的内存索引中，
-        然后构建并保存这个新索引，覆盖旧文件。
+        (逻辑基本不变，依赖 _save_indices 更新内存状态)
         """
-        logger.info(f"开始添加 bug report (ID: {bug_report.bug_id})...")
+        logger.info(f"开始添加 bug report...") # Simplified log
 
-        # --- 1. 准备新数据和ID ---
-        self._load_metadata() # Ensure metadata is up-to-date before getting next_id
+        self._load_metadata()
         new_idx = self.metadata["next_id"]
         logger.info(f"新项目将使用索引 ID: {new_idx}")
 
-        # --- 2. 定义所有索引类型 ---
         index_definitions = [
             ("summary", "summary_vector"),
             ("code", "code_vector"),
@@ -295,93 +377,54 @@ class VectorStore:
         ]
 
         new_indices: Dict[str, AnnoyIndex] = {}
-        old_indices: Dict[str, Optional[AnnoyIndex]] = {}
         success = True
 
         try:
             # --- 3. 为每个索引类型加载旧向量并添加到新实例 ---
             for index_name, vector_key in index_definitions:
                 logger.debug(f"处理索引: {index_name}")
-
-                # Create a new empty index instance for this type
                 new_index = AnnoyIndex(self.vector_dim, self.index_type)
                 new_indices[index_name] = new_index
-
-                # Try to load the old index *temporarily* to get old vectors
                 old_index_path = self._get_index_path(index_name)
                 old_index = None
                 if os.path.exists(old_index_path):
                     try:
                         old_index = AnnoyIndex(self.vector_dim, self.index_type)
                         old_index.load(old_index_path)
-                        logger.debug(f"临时加载旧索引 {index_name} 成功, {old_index.get_n_items()} items.")
-                        old_indices[index_name] = old_index # Store for potential later use? Unlikely needed.
                     except Exception as e:
                         logger.warning(f"加载旧索引 {index_name} ({old_index_path}) 失败: {e}. 将只添加新项目。")
-                        old_indices[index_name] = None # Ensure it's None if load fails
-                        # Consider if this failure should halt the process
-                else:
-                    logger.debug(f"旧索引文件 {old_index_path} 不存在。")
-                    old_indices[index_name] = None
 
-                # Add old items to the new index instance
                 if old_index:
-                    num_old_items = old_index.get_n_items()
-                    # Iterate based on expected IDs in metadata, safer than relying on get_n_items range
-                    added_count = 0
-                    skipped_count = 0
-                    existing_ids = set(map(int, self.metadata.get("bugs", {}).keys()))
-
-                    # Annoy expects contiguous IDs from 0 up to n-1 usually.
-                    # If metadata IDs are sparse, this needs careful handling.
-                    # Assuming IDs are 0 to next_id - 1 for now.
-                    for item_id in range(new_idx): # Iterate up to the ID *before* the new one
-                        # Double check if this ID really existed according to metadata? Optional.
-                        # if str(item_id) not in self.metadata['bugs']:
-                        #     logger.warning(f"Index {index_name}: ID {item_id} not in metadata, skipping.")
-                        #     continue
-
-                        # Check if item exists in the loaded old_index
-                        # Annoy doesn't have a direct 'has_item' check. Rely on get_item_vector + try/except.
+                    logger.debug(f"从旧索引 {index_name} 添加项目...")
+                    # Assuming IDs are 0 to new_idx - 1
+                    for item_id in range(new_idx):
                         try:
                             vector = old_index.get_item_vector(item_id)
                             new_index.add_item(item_id, vector)
-                            added_count += 1
-                        except IndexError:
-                            # This might happen if index file and metadata are out of sync,
-                            # or if IDs are not contiguous 0..n-1 in the .ann file.
-                            logger.warning(f"Index {index_name}: 旧索引中未找到项目 ID {item_id} (可能已删除或ID不连续)")
-                            skipped_count += 1
-                        except Exception as e_get:
-                            logger.error(f"Index {index_name}: 获取旧项目 ID {item_id} 的向量时出错: {e_get}")
-                            skipped_count += 1
-                            # Decide if this error is critical
-
-                    logger.debug(f"Index {index_name}: 从旧索引添加了 {added_count} 个项目到新实例，跳过 {skipped_count} 个。")
-                    # Unload the temporary old index to free memory
-                    old_index.unload()
-                    logger.debug(f"临时旧索引 {index_name} 已卸载。")
+                        except Exception: # More specific exception?
+                           # Log if an expected item is missing
+                           if str(item_id) in self.metadata.get("bugs", {}):
+                                logger.warning(f"Index {index_name}: 旧索引中未找到预期的项目 ID {item_id}")
+                    old_index.unload() # Unload temporary old index
 
                 # --- 4. 添加新项目的向量 ---
                 if vector_key in vectors and vectors[vector_key] is not None:
                     try:
                         new_index.add_item(new_idx, vectors[vector_key])
-                        logger.debug(f"Index {index_name}: 成功添加新项目 ID {new_idx}。")
                     except Exception as e_add_new:
-                        logger.error(f"Index {index_name}: 添加新项目 ID {new_idx} 到新实例时出错: {e_add_new}")
+                        logger.error(f"Index {index_name}: 添加新项目 ID {new_idx} 时出错: {e_add_new}")
                         success = False
-                        break # Stop processing further indices if adding the new item fails
+                        break
                 else:
-                    logger.debug(f"Index {index_name}: 没有为新项目提供向量 (key: {vector_key})，跳过添加。")
+                     logger.debug(f"Index {index_name}: 没有为新项目提供向量 (key: {vector_key})。")
 
-            # --- End loop for index_definitions ---
 
             if not success:
                  logger.error("由于添加新向量时出错，中止添加操作。")
                  return False
 
-            # --- 5. 更新内存中的索引实例 ---
-            logger.debug("使用新构建的索引更新内存中的实例...")
+            # --- 5. 更新内存中的索引实例 (指向未保存的索引) ---
+            # These instances will be processed by _save_indices
             self.summary_index = new_indices.get("summary")
             self.code_index = new_indices.get("code")
             self.test_steps_index = new_indices.get("test_steps")
@@ -392,39 +435,25 @@ class VectorStore:
 
             # --- 6. 更新元数据 ---
             logger.debug("更新元数据...")
-            # Ensure bug_report data is stored correctly (e.g., as dict)
-            bug_data_to_store = {}
-            if isinstance(bug_report, dict):
-                bug_data_to_store = bug_report
-            elif hasattr(bug_report, 'dict'): # Pydantic
-                bug_data_to_store = bug_report.dict()
-            else: # Attempt conversion
-                 try:
-                      bug_data_to_store = vars(bug_report)
-                 except TypeError:
-                      logger.error(f"无法将 bug_report (类型: {type(bug_report)}) 转换为字典以存入元数据。")
-                      # Decide how to handle - store partial data? Raise error?
-                      bug_data_to_store = {"bug_id": bug_report.bug_id, "error": "Metadata serialization failed"}
-
-
+            bug_data_to_store = bug_report if isinstance(bug_report, dict) else vars(bug_report) # Basic serialization
             self.metadata["bugs"][str(new_idx)] = bug_data_to_store
             self.metadata["next_id"] = new_idx + 1
-            logger.debug(f"元数据已更新，next_id 现在是 {self.metadata['next_id']}")
 
-            # --- 7. 构建并保存所有新索引和元数据 ---
-            logger.info("开始构建和保存所有更新后的索引及元数据...")
-            self._save_indices() # This now handles build() and save()
+            # --- 7. 构建、保存、卸载、重新加载所有新索引和元数据 ---
+            logger.info("调用 _save_indices 来处理构建、保存和重新加载...")
+            self._save_indices() # This now handles build, save, unload, reload, and updates self.*_index
 
-            logger.info(f"Bug report (ID: {bug_report.bug_id}, Index ID: {new_idx}) 添加成功。")
+            # Check if reload was successful for at least one index? Optional.
+            if self.summary_index is None and self.code_index is None: # Example check
+                 logger.warning("添加操作后，主要索引未能成功重新加载。搜索功能可能受限。")
+
+            logger.info(f"Bug report (Index ID: {new_idx}) 添加过程完成。")
             return True
 
         except Exception as e:
-            logger.error(f"添加 bug report (ID: {bug_report.bug_id}) 失败: {str(e)}")
+            logger.error(f"添加 bug report (Index ID: {new_idx}) 失败: {str(e)}")
             logger.error(f"错误堆栈: {traceback.format_exc()}")
-            # No rollback implemented here, state might be inconsistent if error occurs mid-process
-            # Consider adding rollback logic if necessary (e.g., restore previous metadata/index files)
             return False
-
             
     def _load_existing_data(self):
         """从现有索引文件加载已有数据"""
