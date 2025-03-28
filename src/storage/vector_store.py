@@ -27,13 +27,13 @@ class VectorStore:
         os.makedirs(os.path.join(self.data_dir, "temp"), exist_ok=True)
         
         # 初始化索引
-        self.description_index = None
-        self.steps_index = None
-        self.expected_index = None
-        self.actual_index = None
+        self.summary_index = None
         self.code_index = None
-        self.log_index = None
-        self.env_index = None
+        self.test_steps_index = None
+        self.expected_result_index = None
+        self.actual_result_index = None
+        self.log_info_index = None
+        self.environment_index = None
         
         # 初始化元数据
         self.metadata = {
@@ -56,19 +56,15 @@ class VectorStore:
             if os.path.exists(metadata_path):
                 with open(metadata_path, 'r', encoding='utf-8') as f:
                     self.metadata = json.load(f)
-                    # 转换时间字符串为datetime对象
-                    for bug_id, bug_data in self.metadata["bugs"].items():
-                        bug_data["created_at"] = datetime.fromisoformat(bug_data["created_at"])
-                        bug_data["updated_at"] = datetime.fromisoformat(bug_data["updated_at"])
             
             # 创建或加载索引
-            self.description_index = self._create_or_load_index("description", read_only)
-            self.steps_index = self._create_or_load_index("steps", read_only)
-            self.expected_index = self._create_or_load_index("expected", read_only)
-            self.actual_index = self._create_or_load_index("actual", read_only)
+            self.summary_index = self._create_or_load_index("summary", read_only)
             self.code_index = self._create_or_load_index("code", read_only)
-            self.log_index = self._create_or_load_index("log", read_only)
-            self.env_index = self._create_or_load_index("env", read_only)
+            self.test_steps_index = self._create_or_load_index("test_steps", read_only)
+            self.expected_result_index = self._create_or_load_index("expected_result", read_only)
+            self.actual_result_index = self._create_or_load_index("actual_result", read_only)
+            self.log_info_index = self._create_or_load_index("log_info", read_only)
+            self.environment_index = self._create_or_load_index("environment", read_only)
             
         except Exception as e:
             logger.error(f"加载索引失败，将创建新索引: {str(e)}")
@@ -113,18 +109,18 @@ class VectorStore:
     
     def _create_new_indices(self):
         """创建新的索引"""
-        self.description_index = AnnoyIndex(self.vector_dim, self.index_type)
-        self.steps_index = AnnoyIndex(self.vector_dim, self.index_type)
-        self.expected_index = AnnoyIndex(self.vector_dim, self.index_type)
-        self.actual_index = AnnoyIndex(self.vector_dim, self.index_type)
+        self.summary_index = AnnoyIndex(self.vector_dim, self.index_type)
         self.code_index = AnnoyIndex(self.vector_dim, self.index_type)
-        self.log_index = AnnoyIndex(self.vector_dim, self.index_type)
-        self.env_index = AnnoyIndex(self.vector_dim, self.index_type)
+        self.test_steps_index = AnnoyIndex(self.vector_dim, self.index_type)
+        self.expected_result_index = AnnoyIndex(self.vector_dim, self.index_type)
+        self.actual_result_index = AnnoyIndex(self.vector_dim, self.index_type)
+        self.log_info_index = AnnoyIndex(self.vector_dim, self.index_type)
+        self.environment_index = AnnoyIndex(self.vector_dim, self.index_type)
     
     def _save_indices(self):
         """保存索引和元数据"""
         try:
-            # 在保存之前转换datetime对象为ISO格式字符串
+            # 保存元数据
             metadata_copy = {
                 "bugs": {},
                 "next_id": self.metadata["next_id"]
@@ -132,8 +128,6 @@ class VectorStore:
             
             for bug_id, bug_data in self.metadata["bugs"].items():
                 metadata_copy["bugs"][bug_id] = bug_data.copy()
-                metadata_copy["bugs"][bug_id]["created_at"] = bug_data["created_at"].isoformat()
-                metadata_copy["bugs"][bug_id]["updated_at"] = bug_data["updated_at"].isoformat()
             
             # 保存元数据
             metadata_path = os.path.join(self.data_dir, "metadata.json")
@@ -142,13 +136,13 @@ class VectorStore:
             
             # 构建并保存索引
             indices = [
-                (self.description_index, "description"),
-                (self.steps_index, "steps"),
-                (self.expected_index, "expected"),
-                (self.actual_index, "actual"),
+                (self.summary_index, "summary"),
+                (self.test_steps_index, "test_steps"),
+                (self.expected_result_index, "expected_result"),
+                (self.actual_result_index, "actual_result"),
                 (self.code_index, "code"),
-                (self.log_index, "log"),
-                (self.env_index, "env")
+                (self.log_info_index, "log_info"),
+                (self.environment_index, "environment")
             ]
             
             for index, name in indices:
@@ -301,13 +295,13 @@ class VectorStore:
         try:
             # 每次添加都创建新的索引实例
             logger.info("为添加新项目创建新的索引实例")
-            self.description_index = AnnoyIndex(self.vector_dim, self.index_type)
-            self.steps_index = AnnoyIndex(self.vector_dim, self.index_type)
-            self.expected_index = AnnoyIndex(self.vector_dim, self.index_type)
-            self.actual_index = AnnoyIndex(self.vector_dim, self.index_type)
+            self.summary_index = AnnoyIndex(self.vector_dim, self.index_type)
             self.code_index = AnnoyIndex(self.vector_dim, self.index_type)
-            self.log_index = AnnoyIndex(self.vector_dim, self.index_type)
-            self.env_index = AnnoyIndex(self.vector_dim, self.index_type)
+            self.test_steps_index = AnnoyIndex(self.vector_dim, self.index_type)
+            self.expected_result_index = AnnoyIndex(self.vector_dim, self.index_type)
+            self.actual_result_index = AnnoyIndex(self.vector_dim, self.index_type)
+            self.log_info_index = AnnoyIndex(self.vector_dim, self.index_type)
+            self.environment_index = AnnoyIndex(self.vector_dim, self.index_type)
             
             # 如果已有索引文件，先加载现有数据
             self._load_existing_data()
@@ -318,45 +312,47 @@ class VectorStore:
             
             # 保存bug报告元数据
             self.metadata["bugs"][str(idx)] = {
-                "id": bug_report.id,
-                "description": bug_report.description,
-                "reproducible": bug_report.reproducible,
-                "steps_to_reproduce": bug_report.steps_to_reproduce,
-                "expected_behavior": bug_report.expected_behavior,
-                "actual_behavior": bug_report.actual_behavior,
-                "code_context": {
-                    "code": bug_report.code_context.code if bug_report.code_context else "",
-                    "file_path": bug_report.code_context.file_path if bug_report.code_context else "",
-                    "line_range": bug_report.code_context.line_range if bug_report.code_context else [],
-                    "language": bug_report.code_context.language if bug_report.code_context else ""
-                },
-                "error_logs": bug_report.error_logs,
-                "environment": {
-                    "runtime_env": bug_report.environment.runtime_env if bug_report.environment else "",
-                    "os_info": bug_report.environment.os_info if bug_report.environment else "",
-                    "network_env": bug_report.environment.network_env if bug_report.environment else ""
-                },
-                "created_at": bug_report.created_at,
-                "updated_at": bug_report.updated_at
+                "bug_id": bug_report.bug_id,
+                "summary": bug_report.summary,
+                "file_paths": bug_report.file_paths,
+                "code_diffs": bug_report.code_diffs,
+                "aggregated_added_code": bug_report.aggregated_added_code,
+                "aggregated_removed_code": bug_report.aggregated_removed_code,
+                "test_steps": bug_report.test_steps,
+                "expected_result": bug_report.expected_result,
+                "actual_result": bug_report.actual_result,
+                "log_info": bug_report.log_info,
+                "severity": bug_report.severity,
+                "is_reappear": bug_report.is_reappear,
+                "environment": bug_report.environment,
+                "root_cause": bug_report.root_cause,
+                "fix_solution": bug_report.fix_solution,
+                "related_issues": bug_report.related_issues,
+                "fix_person": bug_report.fix_person,
+                "create_at": bug_report.create_at,
+                "fix_date": bug_report.fix_date,
+                "reopen_count": bug_report.reopen_count,
+                "handlers": bug_report.handlers,
+                "project_id": bug_report.project_id
             }
             
             # 添加向量到索引
             success = True
             try:
-                if "description_vector" in vectors and self.description_index is not None:
-                    self.description_index.add_item(idx, vectors["description_vector"])
-                if "steps_vector" in vectors and self.steps_index is not None:
-                    self.steps_index.add_item(idx, vectors["steps_vector"])
-                if "expected_vector" in vectors and self.expected_index is not None:
-                    self.expected_index.add_item(idx, vectors["expected_vector"])
-                if "actual_vector" in vectors and self.actual_index is not None:
-                    self.actual_index.add_item(idx, vectors["actual_vector"])
+                if "summary_vector" in vectors and self.summary_index is not None:
+                    self.summary_index.add_item(idx, vectors["summary_vector"])
                 if "code_vector" in vectors and self.code_index is not None:
                     self.code_index.add_item(idx, vectors["code_vector"])
-                if "log_vector" in vectors and self.log_index is not None:
-                    self.log_index.add_item(idx, vectors["log_vector"])
-                if "env_vector" in vectors and self.env_index is not None:
-                    self.env_index.add_item(idx, vectors["env_vector"])
+                if "test_steps_vector" in vectors and self.test_steps_index is not None:
+                    self.test_steps_index.add_item(idx, vectors["test_steps_vector"])
+                if "expected_result_vector" in vectors and self.expected_result_index is not None:
+                    self.expected_result_index.add_item(idx, vectors["expected_result_vector"])
+                if "actual_result_vector" in vectors and self.actual_result_index is not None:
+                    self.actual_result_index.add_item(idx, vectors["actual_result_vector"])
+                if "log_info_vector" in vectors and self.log_info_index is not None:
+                    self.log_info_index.add_item(idx, vectors["log_info_vector"])
+                if "environment_vector" in vectors and self.environment_index is not None:
+                    self.environment_index.add_item(idx, vectors["environment_vector"])
                 
                 # 保存更改
                 self._save_indices()
@@ -380,18 +376,41 @@ class VectorStore:
     def _load_existing_data(self):
         """从现有索引文件加载已有数据"""
         logger.info("尝试加载现有索引数据")
-        for bug_id, bug_data in self.metadata["bugs"].items():
-            idx = int(bug_id)
-            try:
-                # 如果有描述向量
-                desc_file = os.path.join(self.data_dir, "description.ann")
-                if os.path.exists(desc_file):
-                    # 这里我们不能直接加载，因为加载后无法添加新项目
-                    # 所以我们只是记录信息，不做实际加载
-                    logger.debug(f"索引文件存在，将在保存时合并: {desc_file}")
-            except Exception as e:
-                logger.warning(f"加载索引项目 {bug_id} 失败: {str(e)}")
-                continue
+        try:
+            # 加载元数据
+            metadata_path = os.path.join(self.data_dir, "metadata.json")
+            if os.path.exists(metadata_path):
+                with open(metadata_path, 'r', encoding='utf-8') as f:
+                    self.metadata = json.load(f)
+            
+            # 加载所有索引
+            indices = [
+                (self.summary_index, "summary"),
+                (self.test_steps_index, "test_steps"),
+                (self.expected_result_index, "expected_result"),
+                (self.actual_result_index, "actual_result"),
+                (self.code_index, "code"),
+                (self.log_info_index, "log_info"),
+                (self.environment_index, "environment")
+            ]
+            
+            for index, name in indices:
+                index_path = os.path.join(self.data_dir, f"{name}.ann")
+                if os.path.exists(index_path):
+                    try:
+                        index.load(index_path)
+                        logger.info(f"成功加载索引: {name}, 包含 {index.get_n_items()} 个项目")
+                    except Exception as e:
+                        logger.warning(f"加载索引 {name} 失败: {str(e)}")
+                        # 如果加载失败，创建新的空索引
+                        index = AnnoyIndex(self.vector_dim, self.index_type)
+                        index.build(10)
+                        logger.info(f"创建新的空索引: {name}")
+        except Exception as e:
+            logger.error(f"加载现有数据失败: {str(e)}")
+            logger.error(f"错误堆栈: {traceback.format_exc()}")
+            # 如果加载失败，创建新的空索引
+            self._create_new_indices()
     
     def search(self, query_vectors: Dict[str, Any], n_results: int = 5, weights: Dict[str, float] = None) -> List[Dict]:
         """搜索相似的bug报告"""
@@ -405,31 +424,31 @@ class VectorStore:
                 self.read_only = True
             
             # 如果索引为None，尝试加载
-            if self.description_index is None:
-                self.description_index = self._create_or_load_index("description", True)
-            if self.steps_index is None:
-                self.steps_index = self._create_or_load_index("steps", True)
-            if self.expected_index is None:
-                self.expected_index = self._create_or_load_index("expected", True)
-            if self.actual_index is None:
-                self.actual_index = self._create_or_load_index("actual", True)
+            if self.summary_index is None:
+                self.summary_index = self._create_or_load_index("summary", True)
             if self.code_index is None:
                 self.code_index = self._create_or_load_index("code", True)
-            if self.log_index is None:
-                self.log_index = self._create_or_load_index("log", True)
-            if self.env_index is None:
-                self.env_index = self._create_or_load_index("env", True)
+            if self.test_steps_index is None:
+                self.test_steps_index = self._create_or_load_index("test_steps", True)
+            if self.expected_result_index is None:
+                self.expected_result_index = self._create_or_load_index("expected_result", True)
+            if self.actual_result_index is None:
+                self.actual_result_index = self._create_or_load_index("actual_result", True)
+            if self.log_info_index is None:
+                self.log_info_index = self._create_or_load_index("log_info", True)
+            if self.environment_index is None:
+                self.environment_index = self._create_or_load_index("environment", True)
                 
             # 如果没有提供权重，使用默认权重
             if weights is None:
                 weights = {
-                    "description": 0.2,
-                    "steps": 0.15,
-                    "expected": 0.1,
-                    "actual": 0.15,
-                    "code": 0.2,
-                    "log": 0.2,
-                    "env": 0.0
+                    "summary": 0.25,  # 摘要最重要
+                    "code": 0.20,     # 代码相关次之
+                    "test_steps": 0.15,    # 测试步骤
+                    "expected_result": 0.10,  # 预期结果
+                    "actual_result": 0.15,    # 实际结果
+                    "log_info": 0.10,       # 日志信息
+                    "environment": 0.05        # 环境信息
                 }
             
             # 确保所有权重都是浮点数
@@ -448,48 +467,48 @@ class VectorStore:
             
             # 获取所有索引中的结果数量
             total_index_items = 0
-            if self.description_index:
-                total_index_items = max(total_index_items, self.description_index.get_n_items())
+            if self.summary_index:
+                total_index_items = max(total_index_items, self.summary_index.get_n_items())
             
             # 计算要请求的结果数量 - 确保足够多
             requested_results = min(max(50, n_results * 10), total_index_items) if total_index_items > 0 else max(50, n_results * 10)
             logger.info(f"预计返回 {requested_results} 个初始结果进行排序和过滤")
             
             # 对每个向量进行搜索
-            if "description_vector" in query_vectors and self.description_index is not None:
-                description_results = self._search_index(self.description_index, query_vectors["description_vector"], 
-                                               requested_results, weights.get("description", 0))
-                results.update(description_results)
-            
-            if "steps_vector" in query_vectors and self.steps_index is not None:
-                steps_results = self._search_index(self.steps_index, query_vectors["steps_vector"], 
-                                               requested_results, weights.get("steps", 0))
-                results.update(steps_results)
-            
-            if "expected_vector" in query_vectors and self.expected_index is not None:
-                expected_results = self._search_index(self.expected_index, query_vectors["expected_vector"], 
-                                               requested_results, weights.get("expected", 0))
-                results.update(expected_results)
-            
-            if "actual_vector" in query_vectors and self.actual_index is not None:
-                actual_results = self._search_index(self.actual_index, query_vectors["actual_vector"], 
-                                               requested_results, weights.get("actual", 0))
-                results.update(actual_results)
+            if "summary_vector" in query_vectors and self.summary_index is not None:
+                summary_results = self._search_index(self.summary_index, query_vectors["summary_vector"], 
+                                               requested_results, weights.get("summary", 0))
+                results.update(summary_results)
             
             if "code_vector" in query_vectors and self.code_index is not None:
                 code_results = self._search_index(self.code_index, query_vectors["code_vector"], 
                                                requested_results, weights.get("code", 0))
                 results.update(code_results)
             
-            if "log_vector" in query_vectors and self.log_index is not None:
-                log_results = self._search_index(self.log_index, query_vectors["log_vector"], 
-                                               requested_results, weights.get("log", 0))
+            if "test_steps_vector" in query_vectors and self.test_steps_index is not None:
+                test_steps_results = self._search_index(self.test_steps_index, query_vectors["test_steps_vector"], 
+                                               requested_results, weights.get("test_steps", 0))
+                results.update(test_steps_results)
+            
+            if "expected_result_vector" in query_vectors and self.expected_result_index is not None:
+                expected_results = self._search_index(self.expected_result_index, query_vectors["expected_result_vector"], 
+                                               requested_results, weights.get("expected_result", 0))
+                results.update(expected_results)
+            
+            if "actual_result_vector" in query_vectors and self.actual_result_index is not None:
+                actual_results = self._search_index(self.actual_result_index, query_vectors["actual_result_vector"], 
+                                               requested_results, weights.get("actual_result", 0))
+                results.update(actual_results)
+            
+            if "log_info_vector" in query_vectors and self.log_info_index is not None:
+                log_results = self._search_index(self.log_info_index, query_vectors["log_info_vector"], 
+                                               requested_results, weights.get("log_info", 0))
                 results.update(log_results)
             
-            if "env_vector" in query_vectors and self.env_index is not None:
-                env_results = self._search_index(self.env_index, query_vectors["env_vector"], 
-                                               requested_results, weights.get("env", 0))
-                results.update(env_results)
+            if "environment_vector" in query_vectors and self.environment_index is not None:
+                environment_results = self._search_index(self.environment_index, query_vectors["environment_vector"], 
+                                               requested_results, weights.get("environment", 0))
+                results.update(environment_results)
             
             # 如果没有结果，返回空列表
             if not results:
@@ -537,7 +556,7 @@ class VectorStore:
             
             # 记录返回的结果ID和距离
             for i, result in enumerate(final_results, 1):
-                logger.info(f"最终结果 #{i}: ID={result['id']}, 距离={result['distance']:.4f}")
+                logger.info(f"最终结果 #{i}: ID={result['bug_id']}, 距离={result['distance']:.4f}")
             
             return final_results
             

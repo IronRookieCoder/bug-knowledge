@@ -31,24 +31,24 @@
                     <div class="row">
                         <div class="col-md-6">
                             <div class="form-group">
-                                <label for="description" class="form-label">问题描述</label>
-                                <textarea class="form-control" id="description" name="description" rows="3" placeholder="请详细描述问题"></textarea>
+                                <label for="summary" class="form-label">问题描述</label>
+                                <textarea class="form-control" id="summary" name="summary" rows="3" placeholder="请详细描述问题"></textarea>
                             </div>
                             
                             <div class="form-group">
                                 <label for="steps" class="form-label">重现步骤</label>
-                                <textarea class="form-control" id="steps" name="steps_to_reproduce" rows="3" placeholder="请描述如何重现这个问题"></textarea>
+                                <textarea class="form-control" id="steps" name="test_steps" rows="3" placeholder="请描述如何重现这个问题"></textarea>
                             </div>
                         </div>
                         <div class="col-md-6">
                             <div class="form-group">
                                 <label for="expected" class="form-label">期望结果</label>
-                                <textarea class="form-control" id="expected" name="expected_behavior" rows="3" placeholder="请描述期望的结果"></textarea>
+                                <textarea class="form-control" id="expected" name="expected_result" rows="3" placeholder="请描述期望的结果"></textarea>
                             </div>
                             
                             <div class="form-group">
                                 <label for="actual" class="form-label">实际结果</label>
-                                <textarea class="form-control" id="actual" name="actual_behavior" rows="3" placeholder="请描述实际的结果"></textarea>
+                                <textarea class="form-control" id="actual" name="actual_result" rows="3" placeholder="请描述实际的结果"></textarea>
                             </div>
                         </div>
                     </div>
@@ -161,7 +161,7 @@
                 const resultHtml = `
                     <div class="result-item border-bottom ${index > 0 ? 'border-top-0' : ''}">
                         <div class="d-flex justify-content-between align-items-start mb-3">
-                            <h5 class="mb-0">BUG #${result.id}</h5>
+                            <h5 class="mb-0">BUG #${result.bug_id}</h5>
                             <span class="badge ${badgeClass}">
                                 相似度: ${similarity.toFixed(1)}%
                             </span>
@@ -169,46 +169,67 @@
                         
                         <div class="mb-3">
                             <strong>问题描述：</strong>
-                            <p>${result.description || '无'}</p>
+                            <p>${result.summary || '无'}</p>
                         </div>
                         
                         <div class="mb-3">
                             <strong>重现步骤：</strong>
-                            <p>${Array.isArray(result.steps_to_reproduce) ? result.steps_to_reproduce.join('<br>') : (result.steps_to_reproduce || '无')}</p>
+                            <p>${Array.isArray(result.test_steps) ? result.test_steps.join('<br>') : (result.test_steps || '无')}</p>
                         </div>
                         
                         <div class="row mb-3">
                             <div class="col-md-6">
                                 <strong>期望结果：</strong>
-                                <p>${result.expected_behavior || '无'}</p>
+                                <p>${result.expected_result || '无'}</p>
                             </div>
                             <div class="col-md-6">
                                 <strong>实际结果：</strong>
-                                <p>${result.actual_behavior || '无'}</p>
-                                </div>
+                                <p>${result.actual_result || '无'}</p>
                             </div>
-                        
-                        ${result.code_context && result.code_context.code ? `
-                            <div class="mb-3">
-                                <strong>相关代码：</strong>
-                                <div class="code-block">${result.code_context.code}</div>
                         </div>
+                        
+                        ${result.file_paths && result.file_paths.length > 0 ? `
+                            <div class="mb-3">
+                                <strong>相关文件：</strong>
+                                <p>${result.file_paths.join('<br>')}</p>
+                            </div>
+                        ` : ''}
+                        
+                        ${result.code_diffs ? `
+                            <div class="mb-3">
+                                <strong>代码变更：</strong>
+                                <pre class="code-block">${result.code_diffs}</pre>
+                            </div>
+                        ` : ''}
+                        
+                        ${result.aggregated_added_code ? `
+                            <div class="mb-3">
+                                <strong>新增代码：</strong>
+                                <pre class="code-block">${result.aggregated_added_code}</pre>
+                            </div>
+                        ` : ''}
+                        
+                        ${result.aggregated_removed_code ? `
+                            <div class="mb-3">
+                                <strong>删除代码：</strong>
+                                <pre class="code-block">${result.aggregated_removed_code}</pre>
+                            </div>
                         ` : ''}
                         
                         ${result.error_logs ? `
                             <div class="mb-3">
                                 <strong>错误日志：</strong>
                                 <div class="error-log">${result.error_logs}</div>
-                    </div>
+                            </div>
                         ` : ''}
                         
                         <div class="text-muted">
                             <small>
-                                创建时间：${new Date(result.created_at).toLocaleString()}
-                                | 更新时间：${new Date(result.updated_at).toLocaleString()}
+                                创建时间：${new Date(result.create_at).toLocaleString()} | 
+                                修复时间：${new Date(result.fix_date).toLocaleString()}
                             </small>
-                </div>
-            </div>
+                        </div>
+                    </div>
                 `;
                 resultsContainer.innerHTML += resultHtml;
             });

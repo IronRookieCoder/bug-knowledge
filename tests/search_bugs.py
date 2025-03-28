@@ -24,7 +24,7 @@ def format_bug_report(bug: dict, index: int = None) -> Panel:
         bug['description'] + "\n",
         
         "[yellow]重现步骤：[/yellow]",
-        "\n".join(f"{i+1}. {step}" for i, step in enumerate(bug['steps_to_reproduce'])) + "\n",
+        "\n".join(f"{i+1}. {step}" for i, step in enumerate(bug['test_steps'])) + "\n",
         
         "[yellow]期望结果：[/yellow]",
         bug['expected_behavior'] + "\n",

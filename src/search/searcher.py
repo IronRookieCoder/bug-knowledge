@@ -5,8 +5,8 @@ from log import logger
 class BugSearcher:
     def search(
             self,
-            description: str = "",
-            steps_to_reproduce: str = "",
+            summary: str = "",
+            test_steps: str = "",
             expected_behavior: str = "",
             actual_behavior: str = "",
             code: str = "",
@@ -17,8 +17,8 @@ class BugSearcher:
             """搜索相似的BUG报告
             
             Args:
-                description: 问题描述
-                steps_to_reproduce: 重现步骤
+                summary: 问题描述
+                test_steps: 重现步骤
                 expected_behavior: 期望结果
                 actual_behavior: 实际结果
                 code: 相关代码
@@ -33,11 +33,11 @@ class BugSearcher:
                 # 生成查询向量
                 vectors = {}
                 
-                if description:
-                    vectors["description_vector"] = self.model.encode(description)
+                if summary:
+                    vectors["description_vector"] = self.model.encode(summary)
                 
-                if steps_to_reproduce:
-                    vectors["steps_vector"] = self.model.encode(steps_to_reproduce)
+                if test_steps:
+                    vectors["steps_vector"] = self.model.encode(test_steps)
                 
                 if expected_behavior:
                     vectors["expected_vector"] = self.model.encode(expected_behavior)

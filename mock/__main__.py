@@ -18,7 +18,7 @@ def main():
     parser.add_argument("--host", default="127.0.0.1", help="Web服务器主机地址")
     parser.add_argument("--port", type=int, default=8000, help="Web服务器端口")
     parser.add_argument("--reload", action="store_true", help="是否启用热重载")
-    parser.add_argument("--data-count", type=int, default=10, help="生成的测试数据数量")
+    parser.add_argument("--data-count", type=int, default=5, help="生成的测试数据数量")
     
     args = parser.parse_args()
     

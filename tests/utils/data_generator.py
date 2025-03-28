@@ -66,31 +66,34 @@ class TestDataGenerator:
         env = random.choice(self.environments)
         
         # 生成时间
-        created_at = datetime.now() - timedelta(days=random.randint(1, 30))
-        updated_at = created_at + timedelta(hours=random.randint(1, 24))
+        create_at = datetime.now() - timedelta(days=random.randint(1, 30))
+        fix_date = create_at + timedelta(days=random.randint(1, 30))
         
         return {
-            "id": bug_id,
-            "description": f"在执行操作时遇到了问题。系统返回错误：{error_msg}",
-            "reproducible": random.choice([True, False]),
-            "steps_to_reproduce": [
-                "1. 启动应用",
-                "2. 执行相关操作",
-                "3. 观察错误发生"
-            ],
-            "expected_behavior": "操作应该正常完成，没有错误发生",
-            "actual_behavior": f"操作失败，产生错误：{error_msg}",
-            "code_context": {
-                "code": code_template[3],
-                "file_path": code_template[1],
-                "line_range": code_template[2],
-                "language": code_template[0]
-            },
-            "error_logs": f"[ERROR] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - {error_msg}\n" + \
-                         f"[DEBUG] Stack trace:\n{error_msg}\nAt {code_template[1]}:{code_template[2][0]}",
+            "bug_id": bug_id,
+            "summary": f"在执行操作时遇到了问题。系统返回错误：{error_msg}",
+            "file_paths": [code_template[1]],
+            "code_diffs": [f"diff --git a/{code_template[1]} b/{code_template[1]}"],
+            "aggregated_added_code": code_template[3],
+            "aggregated_removed_code": "",
+            "description": f"这是一个关于{error_msg}的详细描述。问题出现在系统运行过程中，影响了正常功能的使用。",
+            "test_steps": "1. 启动应用\n2. 执行相关操作\n3. 观察错误发生",
+            "expected_result": "操作应该正常完成，没有错误发生",
+            "actual_result": f"操作失败，产生错误：{error_msg}",
+            "log_info": f"[ERROR] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - {error_msg}\n" + \
+                       f"[DEBUG] Stack trace:\n{error_msg}\nAt {code_template[1]}:{code_template[2][0]}",
+            "severity": random.choice(["P0", "P1", "P2", "P3"]),
+            "is_reappear": random.choice(["是", "否"]),
             "environment": env,
-            "created_at": created_at.isoformat(),
-            "updated_at": updated_at.isoformat()
+            "root_cause": "初步分析为代码逻辑问题",
+            "fix_solution": "修复代码中的逻辑错误",
+            "related_issues": [],
+            "fix_person": random.choice(["张三", "李四", "王五"]),
+            "create_at": create_at.isoformat(),
+            "fix_date": fix_date.isoformat(),
+            "reopen_count": random.randint(0, 2),
+            "handlers": random.sample(["张三", "李四", "王五", "赵六", "钱七"], random.randint(1, 3)),
+            "project_id": f"PROJ-{random.randint(1, 10):03d}"
         }
     
     def generate_bug_reports(self, count: int = 10) -> List[Dict]:

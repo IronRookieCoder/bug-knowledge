@@ -156,44 +156,54 @@ ENVIRONMENT_INFO = [
     }
 ]
 
+SEVERITY_LEVELS = ["P0", "P1", "P2", "P3"]
+HANDLERS = ["张三", "李四", "王五", "赵六", "钱七", "孙八", "周九", "吴十"]
+PROJECT_IDS = ["PROJ-001", "PROJ-002", "PROJ-003", "PROJ-004", "PROJ-005"]
+
 def generate_mock_data(count: int = 10) -> List[Dict]:
     """生成指定数量的模拟数据"""
     mock_data = []
     for i in range(count):
         # 生成随机时间戳（在过去30天内）
-        created_at = datetime.now() - timedelta(days=random.randint(0, 30))
-        updated_at = created_at + timedelta(hours=random.randint(1, 24))
-        
-        # 生成随机代码行范围
-        line_start = random.randint(1, 100)
-        line_end = line_start + random.randint(5, 20)
-        
+        create_at = datetime.now() - timedelta(days=random.randint(0, 30))
+        fix_date = datetime.now() - timedelta(days=random.randint(0, 30))
+
         # 随机选择模板
         title_idx = random.randint(0, len(BUG_TITLES) - 1)
         code_idx = random.randint(0, len(CODE_SNIPPETS) - 1)
         env_idx = random.randint(0, len(ENVIRONMENT_INFO) - 1)
         
+        # 生成随机处理人员
+        num_handlers = random.randint(1, 3)
+        handlers = random.sample(HANDLERS, num_handlers)
+        
+        # 生成随机相关问题
+        num_related = random.randint(0, 2)
+        related_issues = [f"BUG-{uuid.uuid4().hex[:8]}" for _ in range(num_related)]
+        
         bug_report = {
-            "id": f"BUG-{uuid.uuid4().hex[:8]}",
-            "description": f"这是一个关于{BUG_TITLES[title_idx]}的详细描述。问题出现在系统运行过程中，影响了正常功能的使用。",
-            "reproducible": random.choice([True, False]),
-            "steps_to_reproduce": [
-                "1. 启动系统",
-                "2. 执行特定操作",
-                "3. 观察错误现象"
-            ],
-            "expected_behavior": "系统应该正常运行并返回预期结果",
-            "actual_behavior": f"系统出现{BUG_TITLES[title_idx]}，导致功能异常",
-            "code_context": {
-                "code": CODE_SNIPPETS[code_idx],
-                "file_path": f"src/features/feature_{i+1}.py",
-                "line_range": [line_start, line_end],
-                "language": "Python"
-            },
-            "error_logs": ERROR_MESSAGES[title_idx],
-            "environment": ENVIRONMENT_INFO[env_idx],
-            "created_at": created_at.isoformat(),
-            "updated_at": updated_at.isoformat()
+            "bug_id": f"BUG-{uuid.uuid4().hex[:8]}",
+            "summary": BUG_TITLES[title_idx],
+            "file_paths": [f"src/features/feature_{i+1}.py"],
+            "code_diffs": [f"diff --git a/src/features/feature_{i+1}.py b/src/features/feature_{i+1}.py"],
+            "aggregated_added_code": CODE_SNIPPETS[code_idx],
+            "aggregated_removed_code": "",
+            "test_steps": "1. 启动系统\n2. 执行特定操作\n3. 观察错误现象",
+            "expected_result": "系统应该正常运行并返回预期结果",
+            "actual_result": f"系统出现{BUG_TITLES[title_idx]}，导致功能异常",
+            "log_info": ERROR_MESSAGES[title_idx],
+            "severity": random.choice(SEVERITY_LEVELS),
+            "is_reappear": random.choice(["是", "否"]),
+            "environment": ENVIRONMENT_INFO[env_idx]["runtime_env"],
+            "root_cause": "初步分析为代码逻辑问题",
+            "fix_solution": "修复代码中的逻辑错误",
+            "related_issues": related_issues,
+            "fix_person": random.choice(HANDLERS),
+            "create_at": create_at.isoformat(),
+            "fix_date": fix_date.isoformat(),
+            "reopen_count": random.randint(0, 2),
+            "handlers": handlers,
+            "project_id": random.choice(PROJECT_IDS)
         }
         mock_data.append(bug_report)
     

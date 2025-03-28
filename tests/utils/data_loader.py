@@ -2,7 +2,7 @@ import json
 from datetime import datetime
 from pathlib import Path
 from typing import List, Dict
-from src.models.bug_models import BugReport, CodeContext, EnvironmentInfo
+from src.models.bug_models import BugReport
 from src.retrieval.searcher import BugSearcher
 
 class TestDataLoader:
@@ -24,24 +24,13 @@ class TestDataLoader:
         return BugReport(
             id=data["id"],
             description=data["description"],
-            reproducible=data["reproducible"],
-            steps_to_reproduce=data["steps_to_reproduce"],
+            is_reappear=data["is_reappear"],
+            test_steps=data["test_steps"],
             expected_behavior=data["expected_behavior"],
             actual_behavior=data["actual_behavior"],
-            code_context=CodeContext(
-                code=data["code_context"]["code"],
-                file_path=data["code_context"]["file_path"],
-                line_range=tuple(data["code_context"]["line_range"]),
-                language=data["code_context"]["language"]
-            ),
             error_logs=data["error_logs"],
-            environment=EnvironmentInfo(
-                runtime_env=data["environment"]["runtime_env"],
-                os_info=data["environment"]["os_info"],
-                network_env=data["environment"]["network_env"]
-            ),
-            created_at=datetime.fromisoformat(data["created_at"]),
-            updated_at=datetime.fromisoformat(data["updated_at"])
+            create_at=datetime.fromisoformat(data["create_at"]),
+            fix_date=datetime.fromisoformat(data["fix_date"])
         )
     
     def load_bug_reports(self) -> List[BugReport]:

@@ -20,7 +20,7 @@ import json
 import shutil
 from annoy import AnnoyIndex
 
-from src.models.bug_models import BugReport, CodeContext, EnvironmentInfo
+from src.models.bug_models import BugReport
 from src.retrieval.searcher import BugSearcher
 from src.config import AppConfig
 
@@ -55,49 +55,62 @@ def create_web_app(searcher: BugSearcher, config: AppConfig) -> FastAPI:
 
     @app.post("/add")
     async def add_bug(
-        description: str = Form(...),
-        reproducible: bool = Form(...),
-        steps: str = Form(...),
-        expected_behavior: str = Form(...),
-        actual_behavior: str = Form(...),
-        code: str = Form(...),
-        file_path: str = Form(...),
-        line_start: int = Form(...),
-        line_end: int = Form(...),
-        language: str = Form(...),
-        runtime_env: str = Form(...),
-        os_info: str = Form(...),
-        network_env: Optional[str] = Form(None),
-        error_logs: str = Form(...)
+        bug_id: str = Form(...),
+        summary: str = Form(...),
+        file_paths: str = Form(...),
+        code_diffs: str = Form(...),
+        aggregated_added_code: str = Form(...),
+        aggregated_removed_code: str = Form(...),
+        test_steps: str = Form(...),
+        expected_result: str = Form(...),
+        actual_result: str = Form(...),
+        log_info: str = Form(...),
+        severity: str = Form(...),
+        is_reappear: str = Form(...),
+        environment: str = Form(...),
+        root_cause: str = Form(None),
+        fix_solution: str = Form(None),
+        related_issues: str = Form(...),
+        fix_person: str = Form(None),
+        handlers: str = Form(...),
+        project_id: str = Form(...)
     ):
         try:
+            # 解析JSON字符串
+            file_paths_list = json.loads(file_paths)
+            code_diffs_list = json.loads(code_diffs)
+            related_issues_list = json.loads(related_issues)
+            handlers_list = json.loads(handlers)
+            
             # 创建BugReport对象
             bug_report = BugReport(
-                id=f"BUG-{uuid.uuid4().hex[:8]}",
-                description=description,
-                reproducible=reproducible,
-                steps_to_reproduce=steps.split('\n'),
-                expected_behavior=expected_behavior,
-                actual_behavior=actual_behavior,
-                code_context=CodeContext(
-                    code=code,
-                    file_path=file_path,
-                    line_range=(line_start, line_end),
-                    language=language
-                ),
-                error_logs=error_logs,
-                environment=EnvironmentInfo(
-                    runtime_env=runtime_env,
-                    os_info=os_info,
-                    network_env=network_env if network_env else None
-                ),
-                created_at=datetime.now(),
-                updated_at=datetime.now()
+                bug_id=bug_id,
+                summary=summary,
+                file_paths=file_paths_list,
+                code_diffs=code_diffs_list,
+                aggregated_added_code=aggregated_added_code,
+                aggregated_removed_code=aggregated_removed_code,
+                test_steps=test_steps,
+                expected_result=expected_result,
+                actual_result=actual_result,
+                log_info=log_info,
+                severity=severity,
+                is_reappear=is_reappear,
+                environment=environment,
+                root_cause=root_cause,
+                fix_solution=fix_solution,
+                related_issues=related_issues_list,
+                fix_person=fix_person,
+                create_at=datetime.now().isoformat(),
+                fix_date=datetime.now().isoformat(),
+                reopen_count=0,
+                handlers=handlers_list,
+                project_id=project_id
             )
             
             # 保存到知识库
             searcher.add_bug_report(bug_report)
-            return {"status": "success", "bug_id": bug_report.id}
+            return {"status": "success", "bug_id": bug_report.bug_id}
         except Exception as e:
             logger.error(f"添加Bug报告失败: {str(e)}")
             logger.error(f"错误堆栈: {traceback.format_exc()}")
@@ -109,8 +122,8 @@ def create_web_app(searcher: BugSearcher, config: AppConfig) -> FastAPI:
 
     @app.post("/api/search")
     async def search_bugs(
-        description: str = Form(""),
-        steps_to_reproduce: str = Form(""),
+        summary: str = Form(""),
+        test_steps: str = Form(""),
         expected_behavior: str = Form(""),
         actual_behavior: str = Form(""),
         code: str = Form(""),
@@ -121,22 +134,22 @@ def create_web_app(searcher: BugSearcher, config: AppConfig) -> FastAPI:
         try:
             # 记录搜索参数
             logger.info("收到搜索请求:")
-            logger.info(f"  - 描述: {description[:50]}..." if len(description) > 50 else f"  - 描述: {description}")
-            logger.info(f"  - 重现步骤长度: {len(steps_to_reproduce)}")
-            logger.info(f"  - 期望行为长度: {len(expected_behavior)}")
-            logger.info(f"  - 实际行为长度: {len(actual_behavior)}")
+            logger.info(f"  - 摘要: {summary[:50]}..." if len(summary) > 50 else f"  - 摘要: {summary}")
             logger.info(f"  - 代码长度: {len(code)}")
-            logger.info(f"  - 错误日志长度: {len(error_logs)}")
+            logger.info(f"  - 测试步骤长度: {len(test_steps)}")
+            logger.info(f"  - 预期结果长度: {len(expected_behavior)}")
+            logger.info(f"  - 实际结果长度: {len(actual_behavior)}")
+            logger.info(f"  - 日志长度: {len(error_logs)}")
             logger.info(f"  - 请求结果数量: {n_results}")
-
+            
             # 检查每个字段是否有内容
             has_content = {
-                "description": bool(description.strip()),
-                "steps": bool(steps_to_reproduce.strip()),
-                "expected": bool(expected_behavior.strip()),
-                "actual": bool(actual_behavior.strip()),
-                "code": bool(code.strip()),
-                "log": bool(error_logs.strip())
+                "summary": bool(summary and summary.strip()),
+                "code": bool(code and code.strip()),
+                "test": bool((test_steps and test_steps.strip()) or 
+                            (expected_behavior and expected_behavior.strip()) or 
+                            (actual_behavior and actual_behavior.strip())),
+                "log": bool(error_logs and error_logs.strip())
             }
             
             logger.info(f"搜索字段内容状态: {has_content}")
@@ -147,26 +160,29 @@ def create_web_app(searcher: BugSearcher, config: AppConfig) -> FastAPI:
                 return {"status": "error", "message": "请至少输入一个搜索条件"}
             
             # 获取搜索结果, 请求更多结果
-            actual_n_results = max(n_results * 2, 10)  # 至少请求10个结果
+            actual_n_results = max(n_results * 2, 10)
             logger.info(f"执行搜索, 请求 {actual_n_results} 个结果")
             
             results = searcher.search(
-                query_text=description,
-                code_snippet=code,
-                error_log=error_logs,
-                env_info="",
+                query_text=summary,
+                test_steps=test_steps,
+                expected_result=expected_behavior,
+                actual_result=actual_behavior,
+                code=code,
+                log_info=error_logs,
                 n_results=actual_n_results
             )
             
-            logger.info(f"搜索完成, 获得 {len(results)} 个结果")
-            
-            # 记录详细的搜索结果信息
+            # 记录搜索结果
             if results:
-                result_ids = [r["id"] for r in results[:min(10, len(results))]]
+                logger.info(f"搜索完成, 获得 {len(results)} 个结果")
+                result_ids = [r["bug_id"] for r in results[:min(10, len(results))]]
                 logger.info(f"搜索结果ID: {result_ids}")
                 # 记录每个结果的相似度得分
                 for i, result in enumerate(results[:min(5, len(results))], 1):
-                    logger.info(f"结果 #{i}: ID={result['id']}, 距离={result['distance']}")
+                    logger.info(f"结果 #{i}: ID={result['bug_id']}, 距离={result['distance']}")
+            else:
+                logger.info("未找到匹配的结果")
             
             return {
                 "status": "success",
