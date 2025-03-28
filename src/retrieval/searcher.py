@@ -15,7 +15,7 @@ os.environ['TRANSFORMERS_OFFLINE'] = '1'
 
 class BugSearcher:
     def __init__(self, vector_store: Optional[VectorStore] = None):
-        self.vector_store = vector_store or VectorStore(read_only=False)
+        self.vector_store = vector_store or VectorStore()
         self.vectorizer = HybridVectorizer()
         
         # 查询类型权重配置

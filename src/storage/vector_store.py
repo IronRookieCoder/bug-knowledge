@@ -1,141 +1,162 @@
-from typing import List, Dict, Optional, Tuple, Any
+import logging
 import json
 import os
-from annoy import AnnoyIndex
-from src.models.bug_models import BugReport
-from datetime import datetime
-import numpy as np
-import logging
+import time
+import traceback
+import shutil
+from typing import List, Dict, Optional, Tuple, Any
 from pathlib import Path
 import tempfile
-import shutil
-import traceback
-from src.features.code_features import CodeFeatureExtractor, CodeFeatures
-import time
+
+import numpy as np
+from annoy import AnnoyIndex
+
+# Assuming BugReport and other imports are correct
+from src.models.bug_models import BugReport
+# from src.features.code_features import CodeFeatureExtractor, CodeFeatures # Not used directly here
 
 logger = logging.getLogger(__name__)
 
 class VectorStore:
-    def __init__(self, data_dir: str = "data/annoy", vector_dim: int = 384, index_type: str = "angular", read_only: bool = True):
+    # Or adjust its meaning. Let's assume it's for the initial load state.
+    def __init__(self, data_dir: str = "data/annoy", vector_dim: int = 384, index_type: str = "angular"):
         self.data_dir = data_dir
         self.vector_dim = vector_dim
         self.index_type = index_type
-        self.read_only = read_only
-        
+
         # 创建数据目录
         os.makedirs(self.data_dir, exist_ok=True)
         os.makedirs(os.path.join(self.data_dir, "temp"), exist_ok=True)
-        
-        # 初始化索引
-        self.summary_index = None
-        self.code_index = None
-        self.test_steps_index = None
-        self.expected_result_index = None
-        self.actual_result_index = None
-        self.log_info_index = None
-        self.environment_index = None
-        
+
+        # 初始化索引属性为 None
+        self.summary_index: Optional[AnnoyIndex] = None
+        self.code_index: Optional[AnnoyIndex] = None
+        self.test_steps_index: Optional[AnnoyIndex] = None
+        self.expected_result_index: Optional[AnnoyIndex] = None
+        self.actual_result_index: Optional[AnnoyIndex] = None
+        self.log_info_index: Optional[AnnoyIndex] = None
+        self.environment_index: Optional[AnnoyIndex] = None
+
         # 初始化元数据
         self.metadata = {
             "bugs": {},
             "next_id": 0
         }
-        
-        # 加载或创建索引
-        self._load_or_create_indices(read_only)
-    
-    def _load_or_create_indices(self, read_only: bool = True):
-        """加载或创建索引
-        
-        Args:
-            read_only: 是否以只读模式加载索引
-        """
-        try:
-            # 加载元数据
-            metadata_path = os.path.join(self.data_dir, "metadata.json")
-            if os.path.exists(metadata_path):
+
+        # 加载元数据和索引（用于查询，add会强制重新加载和构建）
+        self._load_metadata()
+        self._load_indices_for_read() # Load indices initially for potential querying
+
+    def _load_metadata(self):
+        """仅加载元数据"""
+        metadata_path = os.path.join(self.data_dir, "metadata.json")
+        if os.path.exists(metadata_path):
+            try:
                 with open(metadata_path, 'r', encoding='utf-8') as f:
                     self.metadata = json.load(f)
-            
-            # 创建或加载索引
-            self.summary_index = self._create_or_load_index("summary", read_only)
-            self.code_index = self._create_or_load_index("code", read_only)
-            self.test_steps_index = self._create_or_load_index("test_steps", read_only)
-            self.expected_result_index = self._create_or_load_index("expected_result", read_only)
-            self.actual_result_index = self._create_or_load_index("actual_result", read_only)
-            self.log_info_index = self._create_or_load_index("log_info", read_only)
-            self.environment_index = self._create_or_load_index("environment", read_only)
-            
-        except Exception as e:
-            logger.error(f"加载索引失败，将创建新索引: {str(e)}")
-            # 创建新的索引
-            self._create_new_indices()
-    
-    def _create_or_load_index(self, name: str, read_only: bool = False) -> Optional[AnnoyIndex]:
-        """创建或加载单个索引
-        
-        Args:
-            name: 索引名称
-            read_only: 是否以只读模式加载索引，如果为False则创建新索引
-            
-        Returns:
-            Optional[AnnoyIndex]: 索引对象
-        """
-        try:
-            index = AnnoyIndex(self.vector_dim, self.index_type)
-            index_path = os.path.join(self.data_dir, f"{name}.ann")
-            
-            if os.path.exists(index_path) and read_only:
-                # 如果索引文件存在且是只读模式，尝试加载它
-                try:
-                    index.load(index_path)
-                    logger.info(f"成功加载索引: {name}, 包含 {index.get_n_items()} 个项目")
-                    return index
-                except Exception as e:
-                    logger.error(f"加载索引 {name} 失败，将创建新索引: {str(e)}")
-                    # 如果加载失败，创建新的索引
-                    return AnnoyIndex(self.vector_dim, self.index_type)
-            else:
-                if os.path.exists(index_path):
-                    logger.info(f"索引文件存在，但以写入模式创建新索引: {name}")
-                else:
-                    logger.info(f"索引文件不存在，创建新索引: {name}")
+                logger.info(f"成功加载元数据，next_id: {self.metadata.get('next_id', 0)}")
+            except json.JSONDecodeError:
+                logger.error(f"元数据文件 {metadata_path} 格式错误，将使用默认值。")
+                self.metadata = {"bugs": {}, "next_id": 0}
+            except Exception as e:
+                logger.error(f"加载元数据失败: {str(e)}")
+                self.metadata = {"bugs": {}, "next_id": 0}
+        else:
+            logger.info("元数据文件不存在，将使用默认值。")
+            self.metadata = {"bugs": {}, "next_id": 0}
+
+    def _get_index_path(self, name: str) -> str:
+        """获取索引文件的完整路径"""
+        return os.path.join(self.data_dir, f"{name}.ann")
+
+    def _load_single_index_for_read(self, name: str) -> Optional[AnnoyIndex]:
+        """加载单个索引文件用于读取（查询）"""
+        index_path = self._get_index_path(name)
+        if os.path.exists(index_path):
+            try:
+                index = AnnoyIndex(self.vector_dim, self.index_type)
+                index.load(index_path)
+                # index.get_n_items() # Ensure it loaded correctly, might raise error on corrupt file
+                logger.info(f"成功加载只读索引: {name}, 包含 {index.get_n_items()} 个项目")
                 return index
-        except Exception as e:
-            logger.error(f"初始化索引 {name} 失败: {str(e)}")
-            logger.error(f"错误堆栈: {traceback.format_exc()}")
-            # 返回 None 表示索引创建失败
+            except Exception as e:
+                logger.error(f"加载只读索引 {name} 失败: {str(e)}. 文件可能已损坏或与维度/类型不匹配。")
+                # Optionally: attempt to delete or backup the corrupted file
+                # backup_corrupted_index(index_path)
+                return None
+        else:
+            logger.info(f"只读索引文件 {name}.ann 不存在。")
             return None
-    
-    def _create_new_indices(self):
-        """创建新的索引"""
-        self.summary_index = AnnoyIndex(self.vector_dim, self.index_type)
-        self.code_index = AnnoyIndex(self.vector_dim, self.index_type)
-        self.test_steps_index = AnnoyIndex(self.vector_dim, self.index_type)
-        self.expected_result_index = AnnoyIndex(self.vector_dim, self.index_type)
-        self.actual_result_index = AnnoyIndex(self.vector_dim, self.index_type)
-        self.log_info_index = AnnoyIndex(self.vector_dim, self.index_type)
-        self.environment_index = AnnoyIndex(self.vector_dim, self.index_type)
-    
+
+    def _load_indices_for_read(self):
+        """加载所有索引文件用于读取（查询）"""
+        logger.info("尝试加载现有索引数据（用于读取）...")
+        self.summary_index = self._load_single_index_for_read("summary")
+        self.code_index = self._load_single_index_for_read("code")
+        self.test_steps_index = self._load_single_index_for_read("test_steps")
+        self.expected_result_index = self._load_single_index_for_read("expected_result")
+        self.actual_result_index = self._load_single_index_for_read("actual_result")
+        self.log_info_index = self._load_single_index_for_read("log_info")
+        self.environment_index = self._load_single_index_for_read("environment")
+        logger.info("索引加载（用于读取）完成。")
+
+
+    # _save_indices 和 _build_and_save_index 基本保持不变，但要确保 build() 被调用
     def _save_indices(self):
         """保存索引和元数据"""
+        logger.info("开始保存索引和元数据...")
         try:
-            # 保存元数据
+            # --- 保存元数据 ---
+            # Create a serializable copy (BugReport objects might not be directly serializable)
             metadata_copy = {
                 "bugs": {},
                 "next_id": self.metadata["next_id"]
             }
-            
+            # Ensure bug data is serializable if BugReport isn't just a dict
             for bug_id, bug_data in self.metadata["bugs"].items():
-                metadata_copy["bugs"][bug_id] = bug_data.copy()
-            
-            # 保存元数据
+                 if isinstance(bug_data, dict):
+                     metadata_copy["bugs"][bug_id] = bug_data
+                 elif hasattr(bug_data, 'dict'): # Handle Pydantic models
+                     metadata_copy["bugs"][bug_id] = bug_data.dict()
+                 else: # Fallback or raise error
+                     logger.warning(f"无法序列化 bug_id {bug_id} 的元数据，类型: {type(bug_data)}")
+                     # Convert to dict manually if possible, otherwise skip or error
+                     try:
+                         metadata_copy["bugs"][bug_id] = vars(bug_data)
+                     except TypeError:
+                         logger.error(f"跳过保存 bug_id {bug_id} 的元数据，无法转换为字典。")
+
+
             metadata_path = os.path.join(self.data_dir, "metadata.json")
-            with open(metadata_path, 'w', encoding='utf-8') as f:
+            temp_metadata_path = os.path.join(self.data_dir, "temp", f"metadata_{int(time.time())}.json.tmp")
+
+            with open(temp_metadata_path, 'w', encoding='utf-8') as f:
                 json.dump(metadata_copy, f, ensure_ascii=False, indent=2)
-            
-            # 构建并保存索引
-            indices = [
+
+            # Atomically replace metadata file
+            try:
+                 # On Windows, os.replace might fail if the target exists.
+                 # A common pattern is remove -> rename or use shutil.move
+                 if os.path.exists(metadata_path):
+                     os.remove(metadata_path)
+                 os.rename(temp_metadata_path, metadata_path)
+                 # On POSIX, os.replace is generally atomic
+                 # os.replace(temp_metadata_path, metadata_path)
+                 logger.info("元数据保存成功。")
+            except OSError as e:
+                 logger.error(f"原子替换元数据文件失败: {e}. 尝试 shutil.move...")
+                 try:
+                     shutil.move(temp_metadata_path, metadata_path)
+                     logger.info("元数据通过 shutil.move 保存成功。")
+                 except Exception as move_e:
+                     logger.error(f"使用 shutil.move 保存元数据也失败: {move_e}")
+                     # Consider keeping the temp file for recovery
+                     logger.error(f"未能更新元数据文件: {metadata_path}. 临时文件位于: {temp_metadata_path}")
+
+
+            # --- 构建并保存索引 ---
+            # These indices should already be populated and ready for build/save
+            indices_to_save = [
                 (self.summary_index, "summary"),
                 (self.test_steps_index, "test_steps"),
                 (self.expected_result_index, "expected_result"),
@@ -144,234 +165,266 @@ class VectorStore:
                 (self.log_info_index, "log_info"),
                 (self.environment_index, "environment")
             ]
-            
-            for index, name in indices:
+
+            for index, name in indices_to_save:
                 try:
+                    # Pass the index object itself to build_and_save
                     self._build_and_save_index(index, name)
                 except Exception as e:
-                    logger.error(f"保存索引 {name} 失败: {str(e)}")
+                    logger.error(f"构建或保存索引 {name} 失败: {str(e)}")
                     logger.error(f"错误堆栈: {traceback.format_exc()}")
-                    # 继续保存其他索引
+                    # Decide if failure is critical. Continue saving others?
                     continue
-            
+
             logger.info("所有索引和元数据保存完成")
-            
+
         except Exception as e:
-            logger.error(f"保存索引和元数据失败: {str(e)}")
+            logger.error(f"保存索引和元数据过程中发生意外错误: {str(e)}")
             logger.error(f"错误堆栈: {traceback.format_exc()}")
-            raise RuntimeError(f"保存索引和元数据失败: {str(e)}")
-    
-    def _build_and_save_index(self, index: Optional[AnnoyIndex], name: str) -> Optional[AnnoyIndex]:
-        """构建并保存索引
-        
-        Args:
-            index: AnnoyIndex对象
-            name: 索引名称
-            
-        Returns:
-            Optional[AnnoyIndex]: 保存后的索引对象
-        """
+            # Depending on the error, you might want to raise it
+            # raise RuntimeError(f"保存索引和元数据失败: {str(e)}")
+
+    # _build_and_save_index remains largely the same, ensure build() is called correctly
+    def _build_and_save_index(self, index: Optional[AnnoyIndex], name: str):
+        """构建并保存单个索引"""
         if index is None:
-            logger.warning(f"索引 {name} 为 None，无法保存")
-            return None
-            
-        # 检查索引是否包含项目
-        if index.get_n_items() <= 0:
-            logger.info(f"索引 {name} 为空，跳过保存")
-            return index
-            
-        try:
-            # 创建临时目录
-            temp_dir = os.path.join(self.data_dir, "temp")
-            os.makedirs(temp_dir, exist_ok=True)
-            
-            # 使用时间戳创建唯一的临时文件名
-            timestamp = int(time.time())
-            temp_path = os.path.join(temp_dir, f"{name}_{timestamp}.ann.tmp")
-            final_path = os.path.join(self.data_dir, f"{name}.ann")
-            backup_path = os.path.join(self.data_dir, f"{name}.ann.bak")  # 提前定义backup_path
-            
-            # 构建索引
-            index.build(10)  # 10 trees for better accuracy
-            
-            # 保存到临时文件
-            index.save(temp_path)
-            
-            # 等待一小段时间，确保文件写入完成
-            time.sleep(0.5)
-            
-            # 尝试替换文件
-            max_retries = 5
-            retry_delay = 1.0  # 秒
-            
-            for attempt in range(max_retries):
+            logger.warning(f"索引 {name} 实例为 None，无法构建或保存。")
+            return
+
+        # Check item count before building
+        num_items = index.get_n_items()
+        if num_items <= 0:
+            logger.info(f"索引 {name} 为空 (包含 {num_items} 个项目)，跳过构建和保存。")
+            # Optionally delete the existing .ann file if it exists and the index is now empty
+            index_path = self._get_index_path(name)
+            if os.path.exists(index_path):
                 try:
-                    # 如果目标文件存在，先尝试创建备份
-                    if os.path.exists(final_path):
-                        try:
-                            if os.path.exists(backup_path):
-                                try:
-                                    os.remove(backup_path)
-                                    time.sleep(0.2)  # 等待文件系统操作完成
-                                except:
-                                    logger.warning(f"无法删除旧的备份文件 {backup_path}，尝试继续")
-                                    
-                            # 使用复制而不是重命名
-                            shutil.copy2(final_path, backup_path)
-                            time.sleep(0.2)  # 等待文件系统操作完成
-                            
-                        except Exception as e:
-                            logger.warning(f"无法备份目标文件 {final_path}，尝试直接更新: {str(e)}")
-                    
-                    # 使用复制而不是重命名
-                    try:
-                        # 将临时文件复制到目标位置
-                        shutil.copy2(temp_path, final_path)
-                        time.sleep(0.2)  # 等待文件系统操作完成
-                        logger.info(f"成功保存索引 {name}")
-                        
-                        # 尝试删除临时文件
-                        try:
-                            os.remove(temp_path)
-                        except Exception as e:
-                            logger.debug(f"删除临时文件失败，但索引已成功保存: {str(e)}")
-                        
-                        # 如果备份文件存在且不再需要，尝试删除
-                        if os.path.exists(backup_path):
-                            try:
-                                os.remove(backup_path)
-                            except Exception as e:
-                                logger.warning(f"删除备份文件失败: {str(e)}")
-                        
-                        return index
-                        
-                    except Exception as copy_error:
-                        logger.warning(f"复制索引文件失败: {str(copy_error)}")
-                        # 如果有备份，尝试恢复
-                        if os.path.exists(backup_path):
-                            try:
-                                shutil.copy2(backup_path, final_path)
-                                logger.info(f"已恢复备份索引 {name}")
-                            except Exception as e:
-                                logger.error(f"恢复备份失败: {str(e)}")
-                        raise copy_error
-                    
-                except Exception as e:
-                    logger.warning(f"保存索引 {name} 失败 (尝试 {attempt + 1}/{max_retries}): {str(e)}")
-                    if attempt < max_retries - 1:
-                        time.sleep(retry_delay)
-                    else:
-                        raise
-            
-            # 如果所有重试都失败，抛出异常
-            raise RuntimeError(f"保存索引 {name} 失败，已达到最大重试次数")
-            
-        except Exception as e:
-            logger.error(f"保存索引 {name} 失败: {str(e)}")
-            logger.error(f"错误堆栈: {traceback.format_exc()}")
-            
-            # 清理临时文件和备份文件
-            try:
-                if 'temp_path' in locals() and os.path.exists(temp_path):
-                    try:
-                        os.remove(temp_path)
-                        logger.info(f"已删除临时索引文件: {temp_path}")
-                    except Exception as e:
-                        logger.debug(f"删除临时文件失败，但索引已成功保存: {str(e)}")
-                
-                if os.path.exists(backup_path):
-                    try:
-                        os.remove(backup_path)
-                        logger.info(f"已删除备份索引文件: {backup_path}")
-                    except Exception as e:
-                        logger.warning(f"删除备份文件失败: {str(e)}")
-            except Exception as cleanup_error:
-                logger.error(f"清理文件失败: {str(cleanup_error)}")
-            
-            return None
-    
-    def add_bug_report(self, bug_report: BugReport, vectors: Dict[str, Any]):
-        """添加bug报告到索引"""
+                    os.remove(index_path)
+                    logger.info(f"删除了空的旧索引文件: {index_path}")
+                except OSError as e:
+                    logger.warning(f"无法删除空的旧索引文件 {index_path}: {e}")
+            return
+
+        logger.info(f"开始构建索引 {name} (包含 {num_items} 个项目)...")
+        start_build_time = time.time()
         try:
-            # 每次添加都创建新的索引实例
-            logger.info("为添加新项目创建新的索引实例")
-            self.summary_index = AnnoyIndex(self.vector_dim, self.index_type)
-            self.code_index = AnnoyIndex(self.vector_dim, self.index_type)
-            self.test_steps_index = AnnoyIndex(self.vector_dim, self.index_type)
-            self.expected_result_index = AnnoyIndex(self.vector_dim, self.index_type)
-            self.actual_result_index = AnnoyIndex(self.vector_dim, self.index_type)
-            self.log_info_index = AnnoyIndex(self.vector_dim, self.index_type)
-            self.environment_index = AnnoyIndex(self.vector_dim, self.index_type)
-            
-            # 如果已有索引文件，先加载现有数据
-            self._load_existing_data()
-            
-            # 获取新的ID
-            idx = self.metadata["next_id"]
-            self.metadata["next_id"] += 1
-            
-            # 保存bug报告元数据
-            self.metadata["bugs"][str(idx)] = {
-                "bug_id": bug_report.bug_id,
-                "summary": bug_report.summary,
-                "file_paths": bug_report.file_paths,
-                "code_diffs": bug_report.code_diffs,
-                "aggregated_added_code": bug_report.aggregated_added_code,
-                "aggregated_removed_code": bug_report.aggregated_removed_code,
-                "test_steps": bug_report.test_steps,
-                "expected_result": bug_report.expected_result,
-                "actual_result": bug_report.actual_result,
-                "log_info": bug_report.log_info,
-                "severity": bug_report.severity,
-                "is_reappear": bug_report.is_reappear,
-                "environment": bug_report.environment,
-                "root_cause": bug_report.root_cause,
-                "fix_solution": bug_report.fix_solution,
-                "related_issues": bug_report.related_issues,
-                "fix_person": bug_report.fix_person,
-                "create_at": bug_report.create_at,
-                "fix_date": bug_report.fix_date,
-                "reopen_count": bug_report.reopen_count,
-                "handlers": bug_report.handlers,
-                "project_id": bug_report.project_id
-            }
-            
-            # 添加向量到索引
-            success = True
-            try:
-                if "summary_vector" in vectors and self.summary_index is not None:
-                    self.summary_index.add_item(idx, vectors["summary_vector"])
-                if "code_vector" in vectors and self.code_index is not None:
-                    self.code_index.add_item(idx, vectors["code_vector"])
-                if "test_steps_vector" in vectors and self.test_steps_index is not None:
-                    self.test_steps_index.add_item(idx, vectors["test_steps_vector"])
-                if "expected_result_vector" in vectors and self.expected_result_index is not None:
-                    self.expected_result_index.add_item(idx, vectors["expected_result_vector"])
-                if "actual_result_vector" in vectors and self.actual_result_index is not None:
-                    self.actual_result_index.add_item(idx, vectors["actual_result_vector"])
-                if "log_info_vector" in vectors and self.log_info_index is not None:
-                    self.log_info_index.add_item(idx, vectors["log_info_vector"])
-                if "environment_vector" in vectors and self.environment_index is not None:
-                    self.environment_index.add_item(idx, vectors["environment_vector"])
-                
-                # 保存更改
-                self._save_indices()
-                
-            except Exception as e:
-                logger.error(f"添加向量到索引失败: {str(e)}")
-                logger.error(f"错误堆栈: {traceback.format_exc()}")
-                success = False
-                # 如果添加向量失败，回滚元数据更改
-                if str(idx) in self.metadata["bugs"]:
-                    del self.metadata["bugs"][str(idx)]
-                self.metadata["next_id"] = idx
-            
-            return success
-            
+            # --- 构建索引 ---
+            # num_trees: 10 is a starting point, might need tuning
+            # Use -1 for n_jobs to use all available CPU cores, potentially speeding up build
+            index.build(10, n_jobs=-1)
+            build_duration = time.time() - start_build_time
+            logger.info(f"索引 {name} 构建完成，耗时: {build_duration:.2f} 秒。")
+
         except Exception as e:
-            logger.error(f"添加bug报告失败: {str(e)}")
+            logger.error(f"构建索引 {name} 失败: {str(e)}")
             logger.error(f"错误堆栈: {traceback.format_exc()}")
+            return # Do not proceed to save if build failed
+
+        logger.info(f"开始保存索引 {name}...")
+        start_save_time = time.time()
+
+        # --- 保存索引 (使用临时文件和原子替换) ---
+        temp_dir = os.path.join(self.data_dir, "temp")
+        os.makedirs(temp_dir, exist_ok=True) # Ensure temp dir exists
+
+        timestamp = int(time.time() * 1000) # Higher resolution timestamp
+        temp_path = os.path.join(temp_dir, f"{name}_{timestamp}.ann.tmp")
+        final_path = self._get_index_path(name)
+        # backup_path = os.path.join(self.data_dir, f"{name}.ann.bak") # Backup logic seems complex and maybe error-prone, simplify first
+
+        try:
+            # Save to temporary file first
+            index.save(temp_path)
+            save_duration = time.time() - start_save_time
+            logger.info(f"索引 {name} 已保存到临时文件 {temp_path}，耗时: {save_duration:.2f} 秒。")
+
+            # Atomically replace the final file with the temporary file
+            # Use shutil.move for better cross-platform compatibility than os.replace/rename chain
+            try:
+                shutil.move(temp_path, final_path)
+                logger.info(f"成功将临时索引移动到最终位置: {final_path}")
+            except Exception as move_e:
+                logger.error(f"移动索引文件 {temp_path} 到 {final_path} 失败: {move_e}")
+                # Attempt cleanup of temp file if move fails?
+                try:
+                    os.remove(temp_path)
+                except OSError:
+                    pass # Ignore cleanup error
+                raise RuntimeError(f"无法更新索引文件 {final_path}") from move_e
+
+            # Unload the index from memory after saving? Optional, depends on usage pattern.
+            # index.unload()
+            # logger.info(f"索引 {name} 已从内存卸载。")
+
+        except Exception as e:
+            logger.error(f"保存索引 {name} 到文件失败: {str(e)}")
+            logger.error(f"错误堆栈: {traceback.format_exc()}")
+            # Clean up temporary file if it exists
+            if os.path.exists(temp_path):
+                try:
+                    os.remove(temp_path)
+                    logger.info(f"已删除失败保存的临时索引文件: {temp_path}")
+                except OSError as rm_e:
+                    logger.warning(f"删除临时索引文件 {temp_path} 失败: {rm_e}")
+            # Re-raise or handle error appropriately
+            raise
+
+
+    def add_bug_report(self, bug_report: BugReport, vectors: Dict[str, Any]):
+        """
+        添加单个bug报告及其向量到索引。
+        这将加载现有索引，将所有旧向量和新向量添加到一个新的内存索引中，
+        然后构建并保存这个新索引，覆盖旧文件。
+        """
+        logger.info(f"开始添加 bug report (ID: {bug_report.bug_id})...")
+
+        # --- 1. 准备新数据和ID ---
+        self._load_metadata() # Ensure metadata is up-to-date before getting next_id
+        new_idx = self.metadata["next_id"]
+        logger.info(f"新项目将使用索引 ID: {new_idx}")
+
+        # --- 2. 定义所有索引类型 ---
+        index_definitions = [
+            ("summary", "summary_vector"),
+            ("code", "code_vector"),
+            ("test_steps", "test_steps_vector"),
+            ("expected_result", "expected_result_vector"),
+            ("actual_result", "actual_result_vector"),
+            ("log_info", "log_info_vector"),
+            ("environment", "environment_vector"),
+        ]
+
+        new_indices: Dict[str, AnnoyIndex] = {}
+        old_indices: Dict[str, Optional[AnnoyIndex]] = {}
+        success = True
+
+        try:
+            # --- 3. 为每个索引类型加载旧向量并添加到新实例 ---
+            for index_name, vector_key in index_definitions:
+                logger.debug(f"处理索引: {index_name}")
+
+                # Create a new empty index instance for this type
+                new_index = AnnoyIndex(self.vector_dim, self.index_type)
+                new_indices[index_name] = new_index
+
+                # Try to load the old index *temporarily* to get old vectors
+                old_index_path = self._get_index_path(index_name)
+                old_index = None
+                if os.path.exists(old_index_path):
+                    try:
+                        old_index = AnnoyIndex(self.vector_dim, self.index_type)
+                        old_index.load(old_index_path)
+                        logger.debug(f"临时加载旧索引 {index_name} 成功, {old_index.get_n_items()} items.")
+                        old_indices[index_name] = old_index # Store for potential later use? Unlikely needed.
+                    except Exception as e:
+                        logger.warning(f"加载旧索引 {index_name} ({old_index_path}) 失败: {e}. 将只添加新项目。")
+                        old_indices[index_name] = None # Ensure it's None if load fails
+                        # Consider if this failure should halt the process
+                else:
+                    logger.debug(f"旧索引文件 {old_index_path} 不存在。")
+                    old_indices[index_name] = None
+
+                # Add old items to the new index instance
+                if old_index:
+                    num_old_items = old_index.get_n_items()
+                    # Iterate based on expected IDs in metadata, safer than relying on get_n_items range
+                    added_count = 0
+                    skipped_count = 0
+                    existing_ids = set(map(int, self.metadata.get("bugs", {}).keys()))
+
+                    # Annoy expects contiguous IDs from 0 up to n-1 usually.
+                    # If metadata IDs are sparse, this needs careful handling.
+                    # Assuming IDs are 0 to next_id - 1 for now.
+                    for item_id in range(new_idx): # Iterate up to the ID *before* the new one
+                        # Double check if this ID really existed according to metadata? Optional.
+                        # if str(item_id) not in self.metadata['bugs']:
+                        #     logger.warning(f"Index {index_name}: ID {item_id} not in metadata, skipping.")
+                        #     continue
+
+                        # Check if item exists in the loaded old_index
+                        # Annoy doesn't have a direct 'has_item' check. Rely on get_item_vector + try/except.
+                        try:
+                            vector = old_index.get_item_vector(item_id)
+                            new_index.add_item(item_id, vector)
+                            added_count += 1
+                        except IndexError:
+                            # This might happen if index file and metadata are out of sync,
+                            # or if IDs are not contiguous 0..n-1 in the .ann file.
+                            logger.warning(f"Index {index_name}: 旧索引中未找到项目 ID {item_id} (可能已删除或ID不连续)")
+                            skipped_count += 1
+                        except Exception as e_get:
+                            logger.error(f"Index {index_name}: 获取旧项目 ID {item_id} 的向量时出错: {e_get}")
+                            skipped_count += 1
+                            # Decide if this error is critical
+
+                    logger.debug(f"Index {index_name}: 从旧索引添加了 {added_count} 个项目到新实例，跳过 {skipped_count} 个。")
+                    # Unload the temporary old index to free memory
+                    old_index.unload()
+                    logger.debug(f"临时旧索引 {index_name} 已卸载。")
+
+                # --- 4. 添加新项目的向量 ---
+                if vector_key in vectors and vectors[vector_key] is not None:
+                    try:
+                        new_index.add_item(new_idx, vectors[vector_key])
+                        logger.debug(f"Index {index_name}: 成功添加新项目 ID {new_idx}。")
+                    except Exception as e_add_new:
+                        logger.error(f"Index {index_name}: 添加新项目 ID {new_idx} 到新实例时出错: {e_add_new}")
+                        success = False
+                        break # Stop processing further indices if adding the new item fails
+                else:
+                    logger.debug(f"Index {index_name}: 没有为新项目提供向量 (key: {vector_key})，跳过添加。")
+
+            # --- End loop for index_definitions ---
+
+            if not success:
+                 logger.error("由于添加新向量时出错，中止添加操作。")
+                 return False
+
+            # --- 5. 更新内存中的索引实例 ---
+            logger.debug("使用新构建的索引更新内存中的实例...")
+            self.summary_index = new_indices.get("summary")
+            self.code_index = new_indices.get("code")
+            self.test_steps_index = new_indices.get("test_steps")
+            self.expected_result_index = new_indices.get("expected_result")
+            self.actual_result_index = new_indices.get("actual_result")
+            self.log_info_index = new_indices.get("log_info")
+            self.environment_index = new_indices.get("environment")
+
+            # --- 6. 更新元数据 ---
+            logger.debug("更新元数据...")
+            # Ensure bug_report data is stored correctly (e.g., as dict)
+            bug_data_to_store = {}
+            if isinstance(bug_report, dict):
+                bug_data_to_store = bug_report
+            elif hasattr(bug_report, 'dict'): # Pydantic
+                bug_data_to_store = bug_report.dict()
+            else: # Attempt conversion
+                 try:
+                      bug_data_to_store = vars(bug_report)
+                 except TypeError:
+                      logger.error(f"无法将 bug_report (类型: {type(bug_report)}) 转换为字典以存入元数据。")
+                      # Decide how to handle - store partial data? Raise error?
+                      bug_data_to_store = {"bug_id": bug_report.bug_id, "error": "Metadata serialization failed"}
+
+
+            self.metadata["bugs"][str(new_idx)] = bug_data_to_store
+            self.metadata["next_id"] = new_idx + 1
+            logger.debug(f"元数据已更新，next_id 现在是 {self.metadata['next_id']}")
+
+            # --- 7. 构建并保存所有新索引和元数据 ---
+            logger.info("开始构建和保存所有更新后的索引及元数据...")
+            self._save_indices() # This now handles build() and save()
+
+            logger.info(f"Bug report (ID: {bug_report.bug_id}, Index ID: {new_idx}) 添加成功。")
+            return True
+
+        except Exception as e:
+            logger.error(f"添加 bug report (ID: {bug_report.bug_id}) 失败: {str(e)}")
+            logger.error(f"错误堆栈: {traceback.format_exc()}")
+            # No rollback implemented here, state might be inconsistent if error occurs mid-process
+            # Consider adding rollback logic if necessary (e.g., restore previous metadata/index files)
             return False
+
             
     def _load_existing_data(self):
         """从现有索引文件加载已有数据"""
@@ -416,12 +469,6 @@ class VectorStore:
         """搜索相似的bug报告"""
         try:
             logger.info(f"开始搜索，请求返回 {n_results} 个结果")
-            
-            # 确保所有索引以只读模式加载
-            if not self.read_only:
-                logger.info("当前索引为写入模式，切换到只读模式进行搜索")
-                self._load_or_create_indices(read_only=True)
-                self.read_only = True
             
             # 如果索引为None，尝试加载
             if self.summary_index is None:
