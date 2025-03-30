@@ -118,8 +118,8 @@ def create_web_app(searcher: BugSearcher, config: AppConfig) -> FastAPI:
     async def search_bugs(
         summary: str = Form(""),
         test_steps: str = Form(""),
-        expected_behavior: str = Form(""),
-        actual_behavior: str = Form(""),
+        expected_result: str = Form(""),
+        actual_result: str = Form(""),
         code: str = Form(""),
         error_logs: str = Form(""),
         n_results: int = Form(5)
@@ -131,8 +131,8 @@ def create_web_app(searcher: BugSearcher, config: AppConfig) -> FastAPI:
             logger.info(f"  - 摘要: {summary[:50]}..." if len(summary) > 50 else f"  - 摘要: {summary}")
             logger.info(f"  - 代码长度: {len(code)}")
             logger.info(f"  - 测试步骤长度: {len(test_steps)}")
-            logger.info(f"  - 预期结果长度: {len(expected_behavior)}")
-            logger.info(f"  - 实际结果长度: {len(actual_behavior)}")
+            logger.info(f"  - 预期结果长度: {len(expected_result)}")
+            logger.info(f"  - 实际结果长度: {len(actual_result)}")
             logger.info(f"  - 日志长度: {len(error_logs)}")
             logger.info(f"  - 请求结果数量: {n_results}")
             
@@ -141,8 +141,8 @@ def create_web_app(searcher: BugSearcher, config: AppConfig) -> FastAPI:
                 "summary": bool(summary and summary.strip()),
                 "code": bool(code and code.strip()),
                 "test": bool((test_steps and test_steps.strip()) or 
-                        (expected_behavior and expected_behavior.strip()) or 
-                        (actual_behavior and actual_behavior.strip())),
+                        (expected_result and expected_result.strip()) or 
+                        (actual_result and actual_result.strip())),
                 "log": bool(error_logs and error_logs.strip())
             }
             
@@ -158,8 +158,8 @@ def create_web_app(searcher: BugSearcher, config: AppConfig) -> FastAPI:
             results = searcher.search(
                 summary=summary,
                 test_steps=test_steps,
-                expected_result=expected_behavior,
-                actual_result=actual_behavior,
+                expected_result=expected_result,
+                actual_result=actual_result,
                 code=code,
                 log_info=error_logs,
                 n_results=n_results

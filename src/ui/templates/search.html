@@ -3,136 +3,187 @@
 <h2 class="page-header"><i class="bi bi-search"></i> BUG知识库搜索</h2>
 
 <div class="card">
-    <div class="card-header">
-        <h5 class="mb-0">搜索条件</h5>
-    </div>
-    <div class="card-body">
-        <form id="searchForm">
-            <ul class="nav nav-tabs" role="tablist">
-                <li class="nav-item">
-                    <a class="nav-link active" data-bs-toggle="tab" href="#basicInfo">
-                        <i class="bi bi-info-circle"></i> 基本信息
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" data-bs-toggle="tab" href="#codeTab">
-                        <i class="bi bi-code-square"></i> 代码信息
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" data-bs-toggle="tab" href="#errorTab">
-                        <i class="bi bi-exclamation-triangle"></i> 错误日志
-                    </a>
-                </li>
-            </ul>
-            
-            <div class="tab-content mt-3">
-                <div id="basicInfo" class="tab-pane active">
-                    <div class="row">
-                        <div class="col-md-6">
-                            <div class="form-group">
-                                <label for="summary" class="form-label">问题概述</label>
-                                <textarea class="form-control" id="summary" name="summary" rows="3" placeholder="请输入问题概述"></textarea>
-                            </div>
-                            
-                            <div class="form-group">
-                                <label for="steps" class="form-label">重现步骤</label>
-                                <textarea class="form-control" id="steps" name="test_steps" rows="3" placeholder="请描述如何重现这个问题"></textarea>
-                            </div>
-                        </div>
-                        <div class="col-md-6">
-                            <div class="form-group">
-                                <label for="expected" class="form-label">期望结果</label>
-                                <textarea class="form-control" id="expected" name="expected_result" rows="3" placeholder="请描述期望的结果"></textarea>
-                            </div>
-                            
-                            <div class="form-group">
-                                <label for="actual" class="form-label">实际结果</label>
-                                <textarea class="form-control" id="actual" name="actual_result" rows="3" placeholder="请描述实际的结果"></textarea>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                
-                <div id="codeTab" class="tab-pane fade">
-                    <div class="form-group">
-                        <label for="code" class="form-label">相关代码</label>
-                        <textarea class="form-control" id="code" name="code" rows="10" placeholder="请粘贴相关代码"></textarea>
-                    </div>
-                </div>
-                
-                <div id="errorTab" class="tab-pane fade">
-                    <div class="form-group">
-                        <label for="errorLogs" class="form-label">错误日志</label>
-                        <textarea class="form-control" id="errorLogs" name="error_logs" rows="10" placeholder="请粘贴错误日志"></textarea>
-                    </div>
-                </div>
+  <div class="card-header">
+    <h5 class="mb-0">搜索条件</h5>
+  </div>
+  <div class="card-body">
+    <form id="searchForm">
+      <ul class="nav nav-tabs" role="tablist">
+        <li class="nav-item">
+          <a class="nav-link active" data-bs-toggle="tab" href="#basicInfo">
+            <i class="bi bi-info-circle"></i> 基本信息
+          </a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link" data-bs-toggle="tab" href="#codeTab">
+            <i class="bi bi-code-square"></i> 代码信息
+          </a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link" data-bs-toggle="tab" href="#errorTab">
+            <i class="bi bi-exclamation-triangle"></i> 错误日志
+          </a>
+        </li>
+      </ul>
+
+      <div class="tab-content mt-3">
+        <div id="basicInfo" class="tab-pane active">
+          <div class="row">
+            <div class="col-md-6">
+              <div class="form-group">
+                <label for="summary" class="form-label">问题概述</label>
+                <textarea
+                  class="form-control"
+                  id="summary"
+                  name="summary"
+                  rows="3"
+                  placeholder="请输入问题概述"
+                ></textarea>
+              </div>
+
+              <div class="form-group">
+                <label for="steps" class="form-label">重现步骤</label>
+                <textarea
+                  class="form-control"
+                  id="steps"
+                  name="test_steps"
+                  rows="3"
+                  placeholder="请描述如何重现这个问题"
+                ></textarea>
+              </div>
             </div>
-            
-            <div class="row mt-4">
-                <div class="col-md-12 d-flex justify-content-end">
-                    <button type="submit" class="btn btn-primary me-2">
-                        <i class="bi bi-search"></i> 搜索
-                    </button>
-                    <button type="reset" class="btn btn-secondary">
-                        <i class="bi bi-x-circle"></i> 重置
-                    </button>
-                </div>
+            <div class="col-md-6">
+              <div class="form-group">
+                <label for="expected" class="form-label">期望结果</label>
+                <textarea
+                  class="form-control"
+                  id="expected"
+                  name="expected_result"
+                  rows="3"
+                  placeholder="请描述期望的结果"
+                ></textarea>
+              </div>
+
+              <div class="form-group">
+                <label for="actual" class="form-label">实际结果</label>
+                <textarea
+                  class="form-control"
+                  id="actual"
+                  name="actual_result"
+                  rows="3"
+                  placeholder="请描述实际的结果"
+                ></textarea>
+              </div>
             </div>
-        </form>
-    </div>
+          </div>
+        </div>
+
+        <div id="codeTab" class="tab-pane fade">
+          <div class="form-group">
+            <label for="code" class="form-label">相关代码</label>
+            <textarea
+              class="form-control"
+              id="code"
+              name="code"
+              rows="10"
+              placeholder="请粘贴相关代码"
+            ></textarea>
+          </div>
+        </div>
+
+        <div id="errorTab" class="tab-pane fade">
+          <div class="form-group">
+            <label for="errorLogs" class="form-label">错误日志</label>
+            <textarea
+              class="form-control"
+              id="errorLogs"
+              name="error_logs"
+              rows="10"
+              placeholder="请粘贴错误日志"
+            ></textarea>
+          </div>
+        </div>
+      </div>
+      <div class="row mt-4">
+        <div class="col-md-4">
+          <div class="form-group">
+            <label for="nResults" class="form-label">返回结果数量</label>
+            <input
+              type="number"
+              class="form-control"
+              id="nResults"
+              name="n_results"
+              value="5"
+              min="1"
+              max="20"
+            />
+          </div>
+        </div>
+      </div>
+      <div class="row mt-4">
+        <div class="col-md-12 d-flex justify-content-end">
+          <button type="submit" class="btn btn-primary me-2">
+            <i class="bi bi-search"></i> 搜索
+          </button>
+          <button type="reset" class="btn btn-secondary">
+            <i class="bi bi-x-circle"></i> 重置
+          </button>
+        </div>
+      </div>
+    </form>
+  </div>
 </div>
 
 <div id="loading" class="text-center my-4 d-none">
-    <div class="spinner-border text-primary" role="status">
-        <span class="visually-hidden">加载中...</span>
-    </div>
-    <p class="mt-2">正在搜索相关BUG...</p>
+  <div class="spinner-border text-primary" role="status">
+    <span class="visually-hidden">加载中...</span>
+  </div>
+  <p class="mt-2">正在搜索相关BUG...</p>
 </div>
 
 <div id="searchResults" class="search-results"></div>
-{% endblock %}
-
-{% block scripts %}
+{% endblock %} {% block scripts %}
 <script>
-    document.getElementById('searchForm').addEventListener('submit', async (e) => {
-        e.preventDefault();
-        
-        const form = e.target;
-        const formData = new FormData(form);
-        const loading = document.getElementById('loading');
-        const resultsDiv = document.getElementById('searchResults');
-        
-        // 显示加载状态
-        loading.classList.remove('d-none');
-        resultsDiv.innerHTML = '';
-        
-        try {
-            const response = await fetch('/api/search', {
-                method: 'POST',
-                body: formData
-            });
-            
-            const data = await response.json();
-            
-            // 隐藏加载状态
-            loading.classList.add('d-none');
-            
-            if (data.status === 'error') {
-                throw new Error(data.message);
-            }
-            
-            if (data.results.length === 0) {
-                resultsDiv.innerHTML = `
+  document
+    .getElementById("searchForm")
+    .addEventListener("submit", async (e) => {
+      e.preventDefault();
+
+      const form = e.target;
+      const formData = new FormData(form);
+      const loading = document.getElementById("loading");
+      const resultsDiv = document.getElementById("searchResults");
+
+      // 显示加载状态
+      loading.classList.remove("d-none");
+      resultsDiv.innerHTML = "";
+
+      try {
+        const response = await fetch("/api/search", {
+          method: "POST",
+          body: formData,
+        });
+
+        const data = await response.json();
+
+        // 隐藏加载状态
+        loading.classList.add("d-none");
+
+        if (data.status === "error") {
+          throw new Error(data.message);
+        }
+
+        if (data.results.length === 0) {
+          resultsDiv.innerHTML = `
                     <div class="alert alert-info">
                         <i class="bi bi-info-circle"></i> 未找到相关BUG
                     </div>
                 `;
-                return;
-            }
-            
-            // 显示搜索结果数量
-            resultsDiv.innerHTML = `
+          return;
+        }
+
+        // 显示搜索结果数量
+        resultsDiv.innerHTML = `
                 <div class="card">
                     <div class="card-header">
                         <h5 class="mb-0"><i class="bi bi-list-ul"></i> 搜索结果 (${data.results.length})</h5>
@@ -140,23 +191,25 @@
                     <div class="card-body" id="resultsContainer"></div>
                     </div>
             `;
-            
-            const resultsContainer = document.getElementById('resultsContainer');
-            
-            data.results.forEach((result, index) => {
-                // 计算相似度百分比
-                const similarity = (1 - result.distance) * 100;
-                
-                // 确定相似度徽章颜色
-                let badgeClass = 'bg-danger';
-                if (similarity >= 70) {
-                    badgeClass = 'bg-success';
-                } else if (similarity >= 40) {
-                    badgeClass = 'bg-warning text-dark';
-                }
-                
-                const resultHtml = `
-                    <div class="result-item border-bottom ${index > 0 ? 'border-top-0' : ''}">
+
+        const resultsContainer = document.getElementById("resultsContainer");
+
+        data.results.forEach((result, index) => {
+          // 计算相似度百分比
+          const similarity = (1 - result.distance) * 100;
+
+          // 确定相似度徽章颜色
+          let badgeClass = "bg-danger";
+          if (similarity >= 70) {
+            badgeClass = "bg-success";
+          } else if (similarity >= 40) {
+            badgeClass = "bg-warning text-dark";
+          }
+
+          const resultHtml = `
+                    <div class="result-item border-bottom ${
+                      index > 0 ? "border-top-0" : ""
+                    }">
                         <div class="d-flex justify-content-between align-items-start mb-3">
                             <h5 class="mb-0">BUG #${result.bug_id}</h5>
                             <span class="badge ${badgeClass}">
@@ -166,97 +219,128 @@
                         
                         <div class="mb-3">
                             <strong>问题描述：</strong>
-                            <p>${result.summary || '无'}</p>
+                            <p>${result.summary || "无"}</p>
                         </div>
                         
                         <div class="mb-3">
                             <strong>重现步骤：</strong>
-                            <p>${Array.isArray(result.test_steps) ? result.test_steps.join('<br>') : (result.test_steps || '无')}</p>
+                            <p>${
+                              Array.isArray(result.test_steps)
+                                ? result.test_steps.join("<br>")
+                                : result.test_steps || "无"
+                            }</p>
                         </div>
                         
                         <div class="row mb-3">
                             <div class="col-md-6">
                                 <strong>期望结果：</strong>
-                                <p>${result.expected_result || '无'}</p>
+                                <p>${result.expected_result || "无"}</p>
                             </div>
                             <div class="col-md-6">
                                 <strong>实际结果：</strong>
-                                <p>${result.actual_result || '无'}</p>
+                                <p>${result.actual_result || "无"}</p>
                             </div>
                         </div>
                         
-                        ${result.file_paths && result.file_paths.length > 0 ? `
+                        ${
+                          result.file_paths && result.file_paths.length > 0
+                            ? `
                             <div class="mb-3">
                                 <strong>相关文件：</strong>
-                                <p>${result.file_paths.join('<br>')}</p>
+                                <p>${result.file_paths.join("<br>")}</p>
                             </div>
-                        ` : ''}
+                        `
+                            : ""
+                        }
                         
-                        ${result.code_diffs ? `
+                        ${
+                          result.code_diffs
+                            ? `
                             <div class="mb-3">
                                 <strong>代码变更：</strong>
                                 <pre class="code-block">${result.code_diffs}</pre>
                             </div>
-                        ` : ''}
+                        `
+                            : ""
+                        }
                         
-                        ${result.aggregated_added_code ? `
+                        ${
+                          result.aggregated_added_code
+                            ? `
                             <div class="mb-3">
                                 <strong>新增代码：</strong>
                                 <pre class="code-block">${result.aggregated_added_code}</pre>
                             </div>
-                        ` : ''}
+                        `
+                            : ""
+                        }
                         
-                        ${result.aggregated_removed_code ? `
+                        ${
+                          result.aggregated_removed_code
+                            ? `
                             <div class="mb-3">
                                 <strong>删除代码：</strong>
                                 <pre class="code-block">${result.aggregated_removed_code}</pre>
                             </div>
-                        ` : ''}
+                        `
+                            : ""
+                        }
                         
-                        ${result.error_logs ? `
+                        ${
+                          result.error_logs
+                            ? `
                             <div class="mb-3">
                                 <strong>错误日志：</strong>
                                 <div class="error-log">${result.error_logs}</div>
                             </div>
-                        ` : ''}
+                        `
+                            : ""
+                        }
                         
-                        ${result.log_info ? `
+                        ${
+                          result.log_info
+                            ? `
                             <div class="mb-3">
                                 <strong>日志信息：</strong>
                                 <div class="log-info">${result.log_info}</div>
                             </div>
-                        ` : ''}
+                        `
+                            : ""
+                        }
                         
                         <div class="text-muted">
                             <small>
-                                创建时间：${new Date(result.create_at).toLocaleString()} | 
-                                修复时间：${new Date(result.fix_date).toLocaleString()}
+                                创建时间：${new Date(
+                                  result.create_at
+                                ).toLocaleString()} | 
+                                修复时间：${new Date(
+                                  result.fix_date
+                                ).toLocaleString()}
                             </small>
                         </div>
                     </div>
                 `;
-                resultsContainer.innerHTML += resultHtml;
-            });
-            
-        } catch (error) {
-            // 隐藏加载状态
-            loading.classList.add('d-none');
-            
-            document.getElementById('searchResults').innerHTML = `
+          resultsContainer.innerHTML += resultHtml;
+        });
+      } catch (error) {
+        // 隐藏加载状态
+        loading.classList.add("d-none");
+
+        document.getElementById("searchResults").innerHTML = `
                 <div class="alert alert-danger">
                     <i class="bi bi-exclamation-triangle"></i> 搜索失败：${error.message}
                 </div>
             `;
-        }
+      }
     });
 
-    // 为重置按钮添加事件监听器
-    document.getElementById('searchForm').addEventListener('reset', () => {
-        // 清除搜索结果
-        document.getElementById('searchResults').innerHTML = '';
-        
-        const form = document.getElementById('searchForm');
-        form.reset(); // 确保表单字段也被重置
-    });
+  // 为重置按钮添加事件监听器
+  document.getElementById("searchForm").addEventListener("reset", () => {
+    // 清除搜索结果
+    document.getElementById("searchResults").innerHTML = "";
+
+    const form = document.getElementById("searchForm");
+    form.reset(); // 确保表单字段也被重置
+  });
 </script>
 {% endblock %}

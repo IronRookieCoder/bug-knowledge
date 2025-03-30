@@ -21,51 +21,45 @@ class BugSearcher:
         # 查询类型权重配置
         self.query_type_weights = {
             "summary_only": {
-                "summary": 0.5,           # 摘要权重
-                "code": 0.1,              # 代码权重
-                "test_steps": 0.1,        # 测试步骤权重
-                "expected_result": 0.1,   # 预期结果权重
-                "actual_result": 0.1,     # 实际结果权重
-                "log_info": 0.1           # 日志权重
+                "summary": 1.0,           # 主字段权重调整为 1.0
+                "code": 0.0,              # 其他字段权重调整为 0.0
+                "test_info": 0.0,
+                "log_info": 0.0,
+                "environment": 0.0
             },
             "code_only": {
-                "code": 0.4,              # 代码权重
-                "summary": 0.2,           # 摘要权重
-                "test_steps": 0.1,        # 测试步骤权重
-                "expected_result": 0.1,   # 预期结果权重
-                "actual_result": 0.1,     # 实际结果权重
-                "log_info": 0.1           # 日志权重
+                "summary": 0.0,
+                "code": 1.0,              # 主字段权重调整为 1.0
+                "test_info": 0.0,         # 其他字段权重调整为 0.0
+                "log_info": 0.0,
+                "environment": 0.0
             },
             "test_only": {
-                "test_steps": 0.4,        # 测试步骤权重
-                "expected_result": 0.2,   # 预期结果权重
-                "actual_result": 0.2,     # 实际结果权重
-                "summary": 0.1,           # 摘要权重
-                "code": 0.1               # 代码权重
+                "summary": 0.0,
+                "code": 0.0,
+                "test_info": 1.0,         # 主字段权重调整为 1.0
+                "log_info": 0.0,          # 其他字段权重调整为 0.0
+                "environment": 0.0
             },
             "log_only": {
-                "log_info": 0.4,          # 日志权重
-                "code": 0.2,              # 代码权重
-                "summary": 0.1,           # 摘要权重
-                "test_steps": 0.1,        # 测试步骤权重
-                "expected_result": 0.1,   # 预期结果权重
-                "actual_result": 0.1      # 实际结果权重
+                "summary": 0.0,
+                "code": 0.0,
+                "test_info": 0.0,
+                "log_info": 1.0,          # 主字段权重调整为 1.0
+                "environment": 0.0        # 其他字段权重调整为 0.0
             },
             "environment_only": {
-                "environment": 0.5,       # 环境权重
-                "summary": 0.1,           # 摘要权重
-                "code": 0.1,              # 代码权重
-                "test_steps": 0.1,        # 测试步骤权重
-                "expected_result": 0.1,   # 预期结果权重
-                "actual_result": 0.1      # 实际结果权重
+                "summary": 0.0,
+                "code": 0.0,
+                "test_info": 0.0,
+                "log_info": 0.0,
+                "environment": 1.0        # 主字段权重调整为 1.0
             },
             "mixed": {
                 "summary": 0.2,           # 摘要权重
-                "code": 0.2,              # 代码权重
-                "test_steps": 0.2,        # 测试步骤权重
-                "expected_result": 0.1,   # 预期结果权重
-                "actual_result": 0.1,     # 实际结果权重
-                "log_info": 0.1,          # 日志权重
+                "code": 0.25,              # 代码权重
+                "test_info": 0.15,         # 测试信息权重
+                "log_info": 0.3,          # 日志权重
                 "environment": 0.1        # 环境权重
             }
         }
@@ -94,15 +88,18 @@ class BugSearcher:
                           log_info: Optional[str] = None,
                           environment: Optional[str] = None) -> str:
         """确定查询类型"""
-        if code and not (summary or test_steps or expected_result or actual_result or log_info or environment):
+        # 检查是否有测试相关字段
+        has_test_fields = bool(test_steps or expected_result or actual_result)
+        
+        if code and not (summary or has_test_fields or log_info or environment):
             return "code_only"
-        elif (test_steps or expected_result or actual_result) and not (summary or code or log_info or environment):
+        elif has_test_fields and not (summary or code or log_info or environment):
             return "test_only"
-        elif log_info and not (summary or code or test_steps or expected_result or actual_result or environment):
+        elif log_info and not (summary or code or has_test_fields or environment):
             return "log_only"
-        elif environment and not (summary or code or test_steps or expected_result or actual_result or log_info):
+        elif environment and not (summary or code or has_test_fields or log_info):
             return "environment_only"
-        elif summary and not (code or test_steps or expected_result or actual_result or log_info or environment):
+        elif summary and not (code or has_test_fields or log_info or environment):
             return "summary_only"
         else:
             return "mixed"
@@ -147,14 +144,13 @@ class BugSearcher:
             if code:
                 query_vectors["code_vector"] = self.vectorizer.code_vectorizer.vectorize(code)
             if test_steps or expected_result or actual_result:
+                # 组合所有测试相关信息
                 test_info = {
                     "test_steps": test_steps or "",
                     "expected_result": expected_result or "",
                     "actual_result": actual_result or ""
                 }
-                query_vectors["test_steps_vector"] = self.vectorizer.test_vectorizer.vectorize(test_info)
-                query_vectors["expected_result_vector"] = self.vectorizer.test_vectorizer.vectorize(test_info)
-                query_vectors["actual_result_vector"] = self.vectorizer.test_vectorizer.vectorize(test_info)
+                query_vectors["test_info_vector"] = self.vectorizer.test_vectorizer.vectorize(test_info)
             if log_info:
                 query_vectors["log_info_vector"] = self.vectorizer.log_vectorizer.vectorize(log_info)
             if environment:

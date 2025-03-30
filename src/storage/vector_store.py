@@ -26,9 +26,7 @@ class VectorStore:
         # 初始化索引属性为 None
         self.summary_index: Optional[AnnoyIndex] = None
         self.code_index: Optional[AnnoyIndex] = None
-        self.test_steps_index: Optional[AnnoyIndex] = None
-        self.expected_result_index: Optional[AnnoyIndex] = None
-        self.actual_result_index: Optional[AnnoyIndex] = None
+        self.test_info_index: Optional[AnnoyIndex] = None  # 合并测试相关字段
         self.log_info_index: Optional[AnnoyIndex] = None
         self.environment_index: Optional[AnnoyIndex] = None
 
@@ -93,7 +91,7 @@ class VectorStore:
         Returns:
             Dict[str, Optional[AnnoyIndex]]: 加载的索引字典
         """
-        index_names = ["summary", "code", "test_steps", "expected_result", "actual_result", "log_info", "environment"]
+        index_names = ["summary", "code", "test_info", "log_info", "environment"]
         loaded_indices = {}
         
         for name in index_names:
@@ -118,9 +116,7 @@ class VectorStore:
         # 更新类实例的索引属性
         self.summary_index = loaded_indices.get("summary")
         self.code_index = loaded_indices.get("code")
-        self.test_steps_index = loaded_indices.get("test_steps")
-        self.expected_result_index = loaded_indices.get("expected_result")
-        self.actual_result_index = loaded_indices.get("actual_result")
+        self.test_info_index = loaded_indices.get("test_info")
         self.log_info_index = loaded_indices.get("log_info")
         self.environment_index = loaded_indices.get("environment")
         
@@ -276,10 +272,8 @@ class VectorStore:
             # --- 构建、保存、卸载、重新加载索引 ---
             indices_to_process = {
                 "summary": self.summary_index,
-                "test_steps": self.test_steps_index,
-                "expected_result": self.expected_result_index,
-                "actual_result": self.actual_result_index,
                 "code": self.code_index,
+                "test_info": self.test_info_index,
                 "log_info": self.log_info_index,
                 "environment": self.environment_index
             }
@@ -297,10 +291,8 @@ class VectorStore:
 
             # 更新类实例的索引属性
             self.summary_index = new_loaded_indices.get("summary")
-            self.test_steps_index = new_loaded_indices.get("test_steps")
-            self.expected_result_index = new_loaded_indices.get("expected_result")
-            self.actual_result_index = new_loaded_indices.get("actual_result")
             self.code_index = new_loaded_indices.get("code")
+            self.test_info_index = new_loaded_indices.get("test_info")
             self.log_info_index = new_loaded_indices.get("log_info")
             self.environment_index = new_loaded_indices.get("environment")
             
@@ -312,23 +304,35 @@ class VectorStore:
             logger.error(f"错误堆栈: {traceback.format_exc()}")
             raise  # 重新抛出异常，让调用者知道保存失败
 
-    def add_bug_report(self, bug_report: Any, vectors: Dict[str, Any]): # Changed BugReport type hint
+    def add_bug_report(self, bug_report: Any, vectors: Dict[str, Any]):
         """
         添加单个bug报告及其向量到索引。
         (逻辑基本不变，依赖 _save_indices 更新内存状态)
         """
-        logger.info(f"开始添加 bug report...") # Simplified log
+        logger.info(f"开始添加 bug report...")
 
         self._load_metadata()
         new_idx = self.metadata["next_id"]
         logger.info(f"新项目将使用索引 ID: {new_idx}")
 
+        # 合并测试相关字段的向量
+        if "test_steps_vector" in vectors or "expected_result_vector" in vectors or "actual_result_vector" in vectors:
+            test_info = {
+                "test_steps": bug_report.test_steps if hasattr(bug_report, "test_steps") else "",
+                "expected_result": bug_report.expected_result if hasattr(bug_report, "expected_result") else "",
+                "actual_result": bug_report.actual_result if hasattr(bug_report, "actual_result") else ""
+            }
+            # 使用第一个可用的测试相关向量作为 test_info_vector
+            vectors["test_info_vector"] = next(
+                (vectors[k] for k in ["test_steps_vector", "expected_result_vector", "actual_result_vector"] 
+                if k in vectors and vectors[k] is not None),
+                None
+            )
+
         index_definitions = [
             ("summary", "summary_vector"),
             ("code", "code_vector"),
-            ("test_steps", "test_steps_vector"),
-            ("expected_result", "expected_result_vector"),
-            ("actual_result", "actual_result_vector"),
+            ("test_info", "test_info_vector"),
             ("log_info", "log_info_vector"),
             ("environment", "environment_vector"),
         ]
@@ -384,9 +388,7 @@ class VectorStore:
             # These instances will be processed by _save_indices
             self.summary_index = new_indices.get("summary")
             self.code_index = new_indices.get("code")
-            self.test_steps_index = new_indices.get("test_steps")
-            self.expected_result_index = new_indices.get("expected_result")
-            self.actual_result_index = new_indices.get("actual_result")
+            self.test_info_index = new_indices.get("test_info")
             self.log_info_index = new_indices.get("log_info")
             self.environment_index = new_indices.get("environment")
 
@@ -433,22 +435,18 @@ class VectorStore:
             # 更新类实例的索引属性
             self.summary_index = loaded_indices.get("summary")
             self.code_index = loaded_indices.get("code")
-            self.test_steps_index = loaded_indices.get("test_steps")
-            self.expected_result_index = loaded_indices.get("expected_result")
-            self.actual_result_index = loaded_indices.get("actual_result")
+            self.test_info_index = loaded_indices.get("test_info")
             self.log_info_index = loaded_indices.get("log_info")
             self.environment_index = loaded_indices.get("environment")
                 
             # 如果没有提供权重，使用默认权重
             if weights is None:
                 weights = {
-                    "summary": 0.25,  # 摘要最重要
-                    "code": 0.20,     # 代码相关次之
-                    "test_steps": 0.15,    # 测试步骤
-                    "expected_result": 0.10,  # 预期结果
-                    "actual_result": 0.15,    # 实际结果
-                    "log_info": 0.10,       # 日志信息
-                    "environment": 0.05        # 环境信息
+                    "summary": 0.2,           # 摘要权重
+                    "code": 0.25,              # 代码权重
+                    "test_info": 0.15,         # 测试信息权重
+                    "log_info": 0.3,          # 日志权重
+                    "environment": 0.1        # 环境权重
                 }
             
             # 确保所有权重都是浮点数
@@ -479,9 +477,7 @@ class VectorStore:
             vector_to_index_mapping = {
                 "summary_vector": ("summary", self.summary_index),
                 "code_vector": ("code", self.code_index),
-                "test_steps_vector": ("test_steps", self.test_steps_index),
-                "expected_result_vector": ("expected_result", self.expected_result_index),
-                "actual_result_vector": ("actual_result", self.actual_result_index),
+                "test_info_vector": ("test_info", self.test_info_index),  # 使用 test_info_index 作为 test_info 的索引
                 "log_info_vector": ("log_info", self.log_info_index),
                 "environment_vector": ("environment", self.environment_index)
             }
@@ -657,9 +653,7 @@ class VectorStore:
         new_indices: Dict[str, AnnoyIndex] = {
             "summary": AnnoyIndex(self.vector_dim, self.index_type),
             "code": AnnoyIndex(self.vector_dim, self.index_type),
-            "test_steps": AnnoyIndex(self.vector_dim, self.index_type),
-            "expected_result": AnnoyIndex(self.vector_dim, self.index_type),
-            "actual_result": AnnoyIndex(self.vector_dim, self.index_type),
+            "test_info": AnnoyIndex(self.vector_dim, self.index_type),
             "log_info": AnnoyIndex(self.vector_dim, self.index_type),
             "environment": AnnoyIndex(self.vector_dim, self.index_type)
         }
@@ -689,6 +683,20 @@ class VectorStore:
             for i, (bug_report, vectors) in enumerate(zip(bug_reports, vectors_list)):
                 current_idx = start_idx + i
                 
+                # 合并测试相关字段的向量
+                if "test_steps_vector" in vectors or "expected_result_vector" in vectors or "actual_result_vector" in vectors:
+                    test_info = {
+                        "test_steps": bug_report.test_steps if hasattr(bug_report, "test_steps") else "",
+                        "expected_result": bug_report.expected_result if hasattr(bug_report, "expected_result") else "",
+                        "actual_result": bug_report.actual_result if hasattr(bug_report, "actual_result") else ""
+                    }
+                    # 使用第一个可用的测试相关向量作为 test_info_vector
+                    vectors["test_info_vector"] = next(
+                        (vectors[k] for k in ["test_steps_vector", "expected_result_vector", "actual_result_vector"] 
+                        if k in vectors and vectors[k] is not None),
+                        None
+                    )
+                
                 # 添加向量到各个索引
                 for name, index in new_indices.items():
                     vector_key = f"{name}_vector"
@@ -712,9 +720,7 @@ class VectorStore:
                 # 更新内存中的索引实例
                 self.summary_index = new_indices["summary"]
                 self.code_index = new_indices["code"]
-                self.test_steps_index = new_indices["test_steps"]
-                self.expected_result_index = new_indices["expected_result"]
-                self.actual_result_index = new_indices["actual_result"]
+                self.test_info_index = new_indices["test_info"]
                 self.log_info_index = new_indices["log_info"]
                 self.environment_index = new_indices["environment"]
                 

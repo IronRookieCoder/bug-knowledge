@@ -98,20 +98,30 @@ class CodeVectorizer(BaseVectorizer):
             raise RuntimeError(f"代码向量化失败: {str(e)}")
 
 class TestVectorizer(BaseVectorizer):
-    def vectorize(self, data: Union[str, BugReport]) -> List[float]:
+    def vectorize(self, data: Union[str, BugReport, Dict]) -> List[float]:
         try:
             if isinstance(data, str):
                 text = data
             else:
                 parts = []
-                if data.test_steps:
-                    parts.append(f"测试步骤: {data.test_steps}")
-                if data.expected_result:
-                    parts.append(f"预期结果: {data.expected_result}")
-                if data.actual_result:
-                    parts.append(f"实际结果: {data.actual_result}")
-                if data.is_reappear:
-                    parts.append(f"是否可重现: {data.is_reappear}")
+                # 处理字典输入
+                if isinstance(data, dict):
+                    if data.get("test_steps"):
+                        parts.append(f"测试步骤: {data['test_steps']}")
+                    if data.get("expected_result"):
+                        parts.append(f"预期结果: {data['expected_result']}")
+                    if data.get("actual_result"):
+                        parts.append(f"实际结果: {data['actual_result']}")
+                else:
+                    # 处理BugReport对象
+                    if data.test_steps:
+                        parts.append(f"测试步骤: {data.test_steps}")
+                    if data.expected_result:
+                        parts.append(f"预期结果: {data.expected_result}")
+                    if data.actual_result:
+                        parts.append(f"实际结果: {data.actual_result}")
+                    if data.is_reappear:
+                        parts.append(f"是否可重现: {data.is_reappear}")
                 text = "\n".join(parts)
             return self.model.encode(text).tolist()
         except Exception as e:
