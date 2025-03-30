@@ -25,108 +25,136 @@ BUG_TITLES = [
 ]
 
 CODE_SNIPPETS = [
-    """def connect_db():
-    try:
-        connection = psycopg2.connect(
-            dbname="testdb",
-            user="admin",
-            password="secret",
-            host="localhost",
-            port="5432"
-        )
-        return connection
-    except Exception as e:
-        logger.error(f"数据库连接失败: {str(e)}")
-        raise""",
+    """const connectDb = async () => {
+        try {
+            const connection = await pool.connect({
+                database: "testdb",
+                user: "admin",
+                password: "secret",
+                host: "localhost",
+                port: 5432
+            });
+            return connection;
+        } catch (error) {
+            console.error(`数据库连接失败: ${error.message}`);
+            throw error;
+        }
+    };""",
     
-    """async def login_user(username: str, password: str):
-    user = await db.users.find_one({"username": username})
-    if not user or not verify_password(password, user["password"]):
-        raise AuthenticationError("用户名或密码错误")
-    return generate_token(user)""",
+    """const loginUser = async (username: string, password: string) => {
+        const user = await db.users.findOne({ username });
+        if (!user || !verifyPassword(password, user.password)) {
+            throw new AuthenticationError("用户名或密码错误");
+        }
+        return generateToken(user);
+    };""",
     
-    """def upload_file(file: UploadFile):
-    if file.size > MAX_FILE_SIZE:
-        raise FileTooLargeError("文件大小超过限制")
-    return save_file(file)""",
+    """const uploadFile = (file: Express.Multer.File) => {
+        if (file.size > MAX_FILE_SIZE) {
+            throw new FileTooLargeError("文件大小超过限制");
+        }
+        return saveFile(file);
+    };""",
     
-    """class DataProcessor:
-    def __init__(self):
-        self.cache = {}
+    """class DataProcessor {
+        private cache: Record<string, any> = {};
+        
+        processData(data: { id: string }) {
+            this.cache[data.id] = data;
+            return this.cache;
+        }
+    }""",
     
-    def process_data(self, data):
-        self.cache[data.id] = data
-        return self.cache""",
+    """app.get("/api/data", async (req, res) => {
+        await new Promise(resolve => setTimeout(resolve, 2000)); // 模拟延迟
+        res.json({ status: "success" });
+    });""",
     
-    """@app.get("/api/data")
-async def get_data():
-    await asyncio.sleep(2)  # 模拟延迟
-    return {"status": "success"}""",
+    """const updateCache = (key: string, value: any) => {
+        try {
+            redisClient.set(key, value);
+        } catch (error) {
+            console.error(`缓存更新失败: ${error.message}`);
+            throw error;
+        }
+    };""",
     
-    """def update_cache(key: str, value: Any):
-    try:
-        redis_client.set(key, value)
-    except Exception as e:
-        logger.error(f"缓存更新失败: {str(e)}")
-        raise""",
+    """const handleRequest = async (request: Request) => {
+        const release = await semaphore.acquire();
+        try {
+            return await processRequest(request);
+        } finally {
+            release();
+        }
+    };""",
     
-    """async def handle_request(request):
-    async with semaphore:
-        return await process_request(request)""",
+    """const logError = (error: Error) => {
+        try {
+            const logEntry = `${new Date().toISOString()}: ${error.message}\n`;
+            fs.appendFileSync("error.log", logEntry);
+        } catch (e) {
+            console.error(`日志记录失败: ${e.message}`);
+        }
+    };""",
     
-    """def log_error(error: Exception):
-    try:
-        with open("error.log", "a") as f:
-            f.write(f"{datetime.now()}: {str(error)}\\n")
-    except Exception as e:
-        print(f"日志记录失败: {str(e)}")""",
+    """const syncData = (source: string, target: string) => {
+        const data = fetchData(source);
+        try {
+            saveData(target, data);
+        } catch (error) {
+            console.error(`数据同步失败: ${error.message}`);
+            throw error;
+        }
+    };""",
     
-    """def sync_data(source: str, target: str):
-    data = fetch_data(source)
-    try:
-        save_data(target, data)
-    except Exception as e:
-        logger.error(f"数据同步失败: {str(e)}")
-        raise""",
+    """const checkPermission = (user: User, resource: string) => {
+        if (!user.hasPermission(resource)) {
+            throw new PermissionError("没有访问权限");
+        }
+        return true;
+    };""",
     
-    """def check_permission(user: User, resource: str):
-    if not user.has_permission(resource):
-        raise PermissionError("没有访问权限")
-    return True""",
+    """const loadConfig = (configPath: string) => {
+        try {
+            const config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+            return config;
+        } catch (error) {
+            console.error(`配置文件解析失败: ${error.message}`);
+            throw error;
+        }
+    };""",
     
-    """def load_config(config_path: str):
-    try:
-        with open(config_path, "r") as f:
-            return json.load(f)
-    except Exception as e:
-        logger.error(f"配置文件解析失败: {str(e)}")
-        raise""",  # 新增
+    """const callThirdPartyService = async (url: string, payload: Record<string, any>) => {
+        try {
+            const response = await axios.post(url, payload);
+            return response.data;
+        } catch (error) {
+            console.error(`第三方服务调用失败: ${error.message}`);
+            throw error;
+        }
+    };""",
     
-    """def call_third_party_service(url: str, payload: Dict):
-    try:
-        response = requests.post(url, json=payload)
-        response.raise_for_status()
-        return response.json()
-    except Exception as e:
-        logger.error(f"第三方服务调用失败: {str(e)}")
-        raise""",  # 新增
+    """const acquireLock = (lockKey: string) => {
+        try {
+            const lock = redisClient.lock(lockKey, { timeout: 10 });
+            if (!lock.acquire()) {
+                throw new ResourceLockError("资源锁获取失败");
+            }
+            return lock;
+        } catch (error) {
+            console.error(`资源竞争导致死锁: ${error.message}`);
+            throw error;
+        }
+    };""",
     
-    """def acquire_lock(lock_key: str):
-    try:
-        lock = redis_client.lock(lock_key, timeout=10)
-        if not lock.acquire(blocking=False):
-            raise ResourceLockError("资源锁获取失败")
-        return lock
-    except Exception as e:
-        logger.error(f"资源竞争导致死锁: {str(e)}")
-        raise""",  # 新增
-    
-    """def schedule_task(task_id: str, cron_expr: str):
-    try:
-        scheduler.add_job(task_id, trigger=CronTrigger.from_crontab(cron_expr))
-    except Exception as e:
-        logger.error(f"定时任务未按预期执行: {str(e)}")
-        raise"""  # 新增
+    """const scheduleTask = (taskId: string, cronExpr: string) => {
+        try {
+            scheduler.addJob(taskId, { trigger: CronTrigger.fromCrontab(cronExpr) });
+        } catch (error) {
+            console.error(`定时任务未按预期执行: ${error.message}`);
+            throw error;
+        }
+    };"""
 ]
 
 ERROR_MESSAGES = [
@@ -225,21 +253,30 @@ def generate_mock_data(count: int = 10) -> List[Dict]:
         num_related = random.randint(0, 2)
         related_issues = [f"BUG-{uuid.uuid4().hex[:8]}" for _ in range(num_related)]
         
-        # 修改为标准diff格式
-        diff_content = f"""diff --git a/src/features/feature_{i+1}.py b/src/features/feature_{i+1}.py
---- a/src/features/feature_{i+1}.py
-+++ b/src/features/feature_{i+1}.py
-@@ -1,5 +1,6 @@
- def example_function():
--    print("Original code")
-+    print("Modified code")
-+    print("Added line")
-"""
+        # 随机生成文件路径
+        file_name = f"src/features/feature_{uuid.uuid4().hex[:6]}.ts"
+        
+        # 随机生成代码变更内容
+        original_code = "\n".join([f'console.log("Original line {j}");' for j in range(random.randint(1, 5))])
+        modified_code = "\n".join([f'console.log("Modified line {j}");' for j in range(random.randint(1, 5))])
+        added_code = "\n".join([f'console.log("Added line {j}");' for j in range(random.randint(1, 3))])
+        removed_code = "\n".join([f'console.log("Removed line {j}");' for j in range(random.randint(1, 3))])
+
+        # 构造多样化的 diff 内容
+        diff_content = f"""diff --git a/{file_name} b/{file_name}
+        --- a/{file_name}
+        +++ b/{file_name}
+        @@ -1,{len(original_code.splitlines())} +1,{len(modified_code.splitlines())} @@
+        {original_code}
+        +{added_code}
+        -{removed_code}
+        {modified_code}
+        """
 
         bug_report = {
             "bug_id": f"BUG-{uuid.uuid4().hex[:8]}",
             "summary": BUG_TITLES[title_idx],
-            "file_paths": [f"src/features/feature_{i+1}.py"],
+            "file_paths": [file_name],
             "code_diffs": [diff_content],  # 使用标准diff格式
             "aggregated_added_code": CODE_SNIPPETS[code_idx],
             "aggregated_removed_code": "",

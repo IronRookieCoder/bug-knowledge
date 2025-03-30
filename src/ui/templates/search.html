@@ -265,28 +265,6 @@
                         }
                         
                         ${
-                          result.aggregated_added_code
-                            ? `
-                            <div class="mb-3">
-                                <strong>新增代码：</strong>
-                                <pre class="code-block">${result.aggregated_added_code}</pre>
-                            </div>
-                        `
-                            : ""
-                        }
-                        
-                        ${
-                          result.aggregated_removed_code
-                            ? `
-                            <div class="mb-3">
-                                <strong>删除代码：</strong>
-                                <pre class="code-block">${result.aggregated_removed_code}</pre>
-                            </div>
-                        `
-                            : ""
-                        }
-                        
-                        ${
                           result.error_logs
                             ? `
                             <div class="mb-3">
