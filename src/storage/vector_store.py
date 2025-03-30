@@ -1,27 +1,23 @@
 import logging
 import json
-import os
 import time
 import traceback
-import shutil
 from typing import List, Dict, Optional, Tuple, Any
 from pathlib import Path
 import tempfile
 
 import numpy as np
 from annoy import AnnoyIndex
-
-# Assuming BugReport and other imports are correct
 from src.models.bug_models import BugReport
-# from src.features.code_features import CodeFeatureExtractor, CodeFeatures # Not used directly here
 
 logger = logging.getLogger(__name__)
 
 class VectorStore:
-    def __init__(self, data_dir: str = "data/annoy", vector_dim: int = 384, index_type: str = "angular"):
+    def __init__(self, data_dir: str = "data/annoy", vector_dim: int = 384, index_type: str = "angular", n_trees: int = 10):
         self.data_dir = Path(data_dir)
         self.vector_dim = vector_dim
         self.index_type = index_type
+        self.n_trees = n_trees  # 添加树的数量参数
 
         # 创建数据目录
         self.data_dir.mkdir(parents=True, exist_ok=True)
@@ -176,7 +172,7 @@ class VectorStore:
         logger.info(f"开始构建索引 {name} (包含 {num_items} 个项目)...")
         start_build_time = time.time()
         try:
-            index.build(10, n_jobs=-1)
+            index.build(self.n_trees, n_jobs=-1)  # 使用配置的树数量
             build_duration = time.time() - start_build_time
             logger.info(f"索引 {name} 构建完成，耗时: {build_duration:.2f} 秒。")
         except Exception as e:
@@ -635,3 +631,102 @@ class VectorStore:
             logger.error(f"错误堆栈: {traceback.format_exc()}")
             logger.error(f"搜索参数: 向量长度={len(vector)}, 请求结果数={n_results}, 权重={weight}")
             return {}
+
+    def add_bug_reports(self, bug_reports: List[Any], vectors_list: List[Dict[str, Any]]) -> bool:
+        """
+        批量添加多个bug报告及其向量到索引。
+        
+        Args:
+            bug_reports: bug报告列表
+            vectors_list: 对应的向量列表，每个元素是一个字典，包含各个字段的向量
+            
+        Returns:
+            bool: 是否全部添加成功
+        """
+        if len(bug_reports) != len(vectors_list):
+            logger.error(f"bug报告数量 ({len(bug_reports)}) 与向量列表数量 ({len(vectors_list)}) 不匹配")
+            return False
+            
+        logger.info(f"开始批量添加 {len(bug_reports)} 个bug报告...")
+        
+        # 加载元数据
+        self._load_metadata()
+        start_idx = self.metadata["next_id"]
+        
+        # 创建新的索引实例
+        new_indices: Dict[str, AnnoyIndex] = {
+            "summary": AnnoyIndex(self.vector_dim, self.index_type),
+            "code": AnnoyIndex(self.vector_dim, self.index_type),
+            "test_steps": AnnoyIndex(self.vector_dim, self.index_type),
+            "expected_result": AnnoyIndex(self.vector_dim, self.index_type),
+            "actual_result": AnnoyIndex(self.vector_dim, self.index_type),
+            "log_info": AnnoyIndex(self.vector_dim, self.index_type),
+            "environment": AnnoyIndex(self.vector_dim, self.index_type)
+        }
+        
+        # 加载现有索引数据
+        for name, index in new_indices.items():
+            old_index_path = self._get_index_path(name)
+            if old_index_path.exists():
+                try:
+                    old_index = AnnoyIndex(self.vector_dim, self.index_type)
+                    old_index.load(str(old_index_path))
+                    # 复制现有向量
+                    for item_id in range(start_idx):
+                        try:
+                            vector = old_index.get_item_vector(item_id)
+                            index.add_item(item_id, vector)
+                        except Exception as e:
+                            if str(item_id) in self.metadata.get("bugs", {}):
+                                logger.warning(f"Index {name}: 旧索引中未找到预期的项目 ID {item_id}: {e}")
+                    old_index.unload()
+                except Exception as e:
+                    logger.warning(f"加载旧索引 {name} 失败: {e}")
+        
+        success = True
+        try:
+            # 添加新的bug报告和向量
+            for i, (bug_report, vectors) in enumerate(zip(bug_reports, vectors_list)):
+                current_idx = start_idx + i
+                
+                # 添加向量到各个索引
+                for name, index in new_indices.items():
+                    vector_key = f"{name}_vector"
+                    if vector_key in vectors and vectors[vector_key] is not None:
+                        try:
+                            index.add_item(current_idx, vectors[vector_key])
+                        except Exception as e:
+                            logger.error(f"Index {name}: 添加项目 ID {current_idx} 时出错: {e}")
+                            success = False
+                            break
+                
+                if not success:
+                    break
+                    
+                # 更新元数据
+                bug_data_to_store = bug_report if isinstance(bug_report, dict) else vars(bug_report)
+                self.metadata["bugs"][str(current_idx)] = bug_data_to_store
+                self.metadata["next_id"] = current_idx + 1
+            
+            if success:
+                # 更新内存中的索引实例
+                self.summary_index = new_indices["summary"]
+                self.code_index = new_indices["code"]
+                self.test_steps_index = new_indices["test_steps"]
+                self.expected_result_index = new_indices["expected_result"]
+                self.actual_result_index = new_indices["actual_result"]
+                self.log_info_index = new_indices["log_info"]
+                self.environment_index = new_indices["environment"]
+                
+                # 保存所有更改
+                self._save_indices()
+                logger.info(f"成功批量添加 {len(bug_reports)} 个bug报告")
+                return True
+            else:
+                logger.error("批量添加过程中出现错误，操作已中止")
+                return False
+                
+        except Exception as e:
+            logger.error(f"批量添加bug报告失败: {str(e)}")
+            logger.error(f"错误堆栈: {traceback.format_exc()}")
+            return False

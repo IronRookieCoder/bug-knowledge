@@ -16,7 +16,12 @@ BUG_TITLES = [
     "并发请求处理错误",
     "日志记录异常",
     "数据同步失败",
-    "权限验证问题"
+    "权限验证问题",
+    "前端页面加载缓慢",  # 新增
+    "第三方服务调用失败",  # 新增
+    "配置文件解析错误",  # 新增
+    "资源竞争导致死锁",  # 新增
+    "定时任务未按预期执行"  # 新增
 ]
 
 CODE_SNIPPETS = [
@@ -87,7 +92,41 @@ async def get_data():
     """def check_permission(user: User, resource: str):
     if not user.has_permission(resource):
         raise PermissionError("没有访问权限")
-    return True"""
+    return True""",
+    
+    """def load_config(config_path: str):
+    try:
+        with open(config_path, "r") as f:
+            return json.load(f)
+    except Exception as e:
+        logger.error(f"配置文件解析失败: {str(e)}")
+        raise""",  # 新增
+    
+    """def call_third_party_service(url: str, payload: Dict):
+    try:
+        response = requests.post(url, json=payload)
+        response.raise_for_status()
+        return response.json()
+    except Exception as e:
+        logger.error(f"第三方服务调用失败: {str(e)}")
+        raise""",  # 新增
+    
+    """def acquire_lock(lock_key: str):
+    try:
+        lock = redis_client.lock(lock_key, timeout=10)
+        if not lock.acquire(blocking=False):
+            raise ResourceLockError("资源锁获取失败")
+        return lock
+    except Exception as e:
+        logger.error(f"资源竞争导致死锁: {str(e)}")
+        raise""",  # 新增
+    
+    """def schedule_task(task_id: str, cron_expr: str):
+    try:
+        scheduler.add_job(task_id, trigger=CronTrigger.from_crontab(cron_expr))
+    except Exception as e:
+        logger.error(f"定时任务未按预期执行: {str(e)}")
+        raise"""  # 新增
 ]
 
 ERROR_MESSAGES = [
@@ -100,7 +139,12 @@ ERROR_MESSAGES = [
     "Concurrent request limit exceeded",
     "Failed to write to log file",
     "Data synchronization timeout",
-    "Insufficient permissions for operation"
+    "Insufficient permissions for operation",
+    "Page load time exceeds 5 seconds",  # 新增
+    "Third-party service returned HTTP 500",  # 新增
+    "Failed to parse configuration file",  # 新增
+    "Resource deadlock detected",  # 新增
+    "Scheduled task did not execute as expected"  # 新增
 ]
 
 ENVIRONMENT_INFO = [
