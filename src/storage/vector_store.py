@@ -88,101 +88,69 @@ class VectorStore:
             logger.info(f"只读索引文件 {name}.ann 不存在。")
             return None
 
+    def _load_all_indices(self, for_read: bool = True):
+        """
+        统一加载所有索引的函数
+        
+        Args:
+            for_read (bool): 是否以只读模式加载索引
+            
+        Returns:
+            Dict[str, Optional[AnnoyIndex]]: 加载的索引字典
+        """
+        index_names = ["summary", "code", "test_steps", "expected_result", "actual_result", "log_info", "environment"]
+        loaded_indices = {}
+        
+        for name in index_names:
+            try:
+                loaded_index = self._create_or_load_index(name, for_read)
+                loaded_indices[name] = loaded_index
+                if loaded_index:
+                    logger.info(f"成功加载索引 {name}，包含 {loaded_index.get_n_items()} 个项目")
+                else:
+                    logger.warning(f"索引 {name} 加载失败或为空")
+            except Exception as e:
+                logger.error(f"加载索引 {name} 时发生错误: {str(e)}")
+                loaded_indices[name] = None
+                
+        return loaded_indices
+
     def _load_indices_for_read(self):
         """加载所有索引文件用于读取（查询）"""
-        logger.info("尝试加载现有索引数据（用于读取）...")
-        self.summary_index = self._load_single_index_for_read("summary")
-        self.code_index = self._load_single_index_for_read("code")
-        self.test_steps_index = self._load_single_index_for_read("test_steps")
-        self.expected_result_index = self._load_single_index_for_read("expected_result")
-        self.actual_result_index = self._load_single_index_for_read("actual_result")
-        self.log_info_index = self._load_single_index_for_read("log_info")
-        self.environment_index = self._load_single_index_for_read("environment")
+        logger.info("开始加载现有索引数据（用于读取）...")
+        loaded_indices = self._load_all_indices(for_read=True)
+        
+        # 更新类实例的索引属性
+        self.summary_index = loaded_indices.get("summary")
+        self.code_index = loaded_indices.get("code")
+        self.test_steps_index = loaded_indices.get("test_steps")
+        self.expected_result_index = loaded_indices.get("expected_result")
+        self.actual_result_index = loaded_indices.get("actual_result")
+        self.log_info_index = loaded_indices.get("log_info")
+        self.environment_index = loaded_indices.get("environment")
+        
         logger.info("索引加载（用于读取）完成。")
 
-
-    # _save_indices 和 _build_and_save_index 基本保持不变，但要确保 build() 被调用
-    def _save_indices(self):
-        """保存索引和元数据"""
-        logger.info("开始保存索引和元数据...")
-        try:
-            # --- 保存元数据 ---
-            # Create a serializable copy (BugReport objects might not be directly serializable)
-            metadata_copy = {
-                "bugs": {},
-                "next_id": self.metadata["next_id"]
-            }
-            # Ensure bug data is serializable if BugReport isn't just a dict
-            for bug_id, bug_data in self.metadata["bugs"].items():
-                 if isinstance(bug_data, dict):
-                     metadata_copy["bugs"][bug_id] = bug_data
-                 elif hasattr(bug_data, 'dict'): # Handle Pydantic models
-                     metadata_copy["bugs"][bug_id] = bug_data.dict()
-                 else: # Fallback or raise error
-                     logger.warning(f"无法序列化 bug_id {bug_id} 的元数据，类型: {type(bug_data)}")
-                     # Convert to dict manually if possible, otherwise skip or error
-                     try:
-                         metadata_copy["bugs"][bug_id] = vars(bug_data)
-                     except TypeError:
-                         logger.error(f"跳过保存 bug_id {bug_id} 的元数据，无法转换为字典。")
-
-
-            metadata_path = os.path.join(self.data_dir, "metadata.json")
-            temp_metadata_path = os.path.join(self.data_dir, "temp", f"metadata_{int(time.time())}.json.tmp")
-
-            with open(temp_metadata_path, 'w', encoding='utf-8') as f:
-                json.dump(metadata_copy, f, ensure_ascii=False, indent=2)
-
-            # Atomically replace metadata file
+    # 在 VectorStore 类中添加以下方法
+    def _create_or_load_index(self, name: str, for_read: bool) -> Optional[AnnoyIndex]:
+        """创建或加载索引的通用方法"""
+        index_path = self._get_index_path(name)
+        index = AnnoyIndex(self.vector_dim, self.index_type)
+        
+        if os.path.exists(index_path):
             try:
-                 # On Windows, os.replace might fail if the target exists.
-                 # A common pattern is remove -> rename or use shutil.move
-                 if os.path.exists(metadata_path):
-                     os.remove(metadata_path)
-                 os.rename(temp_metadata_path, metadata_path)
-                 # On POSIX, os.replace is generally atomic
-                 # os.replace(temp_metadata_path, metadata_path)
-                 logger.info("元数据保存成功。")
-            except OSError as e:
-                 logger.error(f"原子替换元数据文件失败: {e}. 尝试 shutil.move...")
-                 try:
-                     shutil.move(temp_metadata_path, metadata_path)
-                     logger.info("元数据通过 shutil.move 保存成功。")
-                 except Exception as move_e:
-                     logger.error(f"使用 shutil.move 保存元数据也失败: {move_e}")
-                     # Consider keeping the temp file for recovery
-                     logger.error(f"未能更新元数据文件: {metadata_path}. 临时文件位于: {temp_metadata_path}")
-
-
-            # --- 构建并保存索引 ---
-            # These indices should already be populated and ready for build/save
-            indices_to_save = [
-                (self.summary_index, "summary"),
-                (self.test_steps_index, "test_steps"),
-                (self.expected_result_index, "expected_result"),
-                (self.actual_result_index, "actual_result"),
-                (self.code_index, "code"),
-                (self.log_info_index, "log_info"),
-                (self.environment_index, "environment")
-            ]
-
-            for index, name in indices_to_save:
-                try:
-                    # Pass the index object itself to build_and_save
-                    self._build_and_save_index(index, name)
-                except Exception as e:
-                    logger.error(f"构建或保存索引 {name} 失败: {str(e)}")
-                    logger.error(f"错误堆栈: {traceback.format_exc()}")
-                    # Decide if failure is critical. Continue saving others?
-                    continue
-
-            logger.info("所有索引和元数据保存完成")
-
-        except Exception as e:
-            logger.error(f"保存索引和元数据过程中发生意外错误: {str(e)}")
-            logger.error(f"错误堆栈: {traceback.format_exc()}")
-            # Depending on the error, you might want to raise it
-            # raise RuntimeError(f"保存索引和元数据失败: {str(e)}")
+                index.load(index_path)
+                logger.info(f"成功加载 {name} 索引，包含 {index.get_n_items()} 个项目")
+            except Exception as e:
+                logger.warning(f"加载 {name} 索引失败，创建新索引: {str(e)}")
+                index = AnnoyIndex(self.vector_dim, self.index_type)
+        else:
+            logger.info(f"{name} 索引不存在，创建新索引")
+        
+        if not for_read and index.get_n_items() > 0:
+            index.build(10)  # 初始化构建
+        
+        return index
 
     def _build_and_save_index(self, index: Optional[AnnoyIndex], name: str) -> Optional[AnnoyIndex]:
         """
@@ -191,21 +159,20 @@ class VectorStore:
         """
         if index is None:
             logger.warning(f"索引 {name} 实例为 None，无法构建或保存。")
-            return None # Return None if input index is None
+            return None
 
         num_items = index.get_n_items()
-        final_path = self._get_index_path(name) # Get final path early
+        final_path = self._get_index_path(name)
 
         if num_items <= 0:
             logger.info(f"索引 {name} 为空 (包含 {num_items} 个项目)，跳过构建和保存。")
-            # Delete existing file if index is now empty
             if os.path.exists(final_path):
                 try:
                     os.remove(final_path)
                     logger.info(f"删除了空的旧索引文件: {final_path}")
                 except OSError as e:
                     logger.warning(f"无法删除空的旧索引文件 {final_path}: {e}")
-            return None # Return None for empty index, caller should handle
+            return None
 
         logger.info(f"开始构建索引 {name} (包含 {num_items} 个项目)...")
         start_build_time = time.time()
@@ -216,7 +183,7 @@ class VectorStore:
         except Exception as e:
             logger.error(f"构建索引 {name} 失败: {str(e)}")
             logger.error(f"错误堆栈: {traceback.format_exc()}")
-            return None # Return None if build fails
+            return None
 
         logger.info(f"开始保存索引 {name}...")
         start_save_time = time.time()
@@ -224,62 +191,54 @@ class VectorStore:
         temp_dir = os.path.join(self.data_dir, "temp")
         os.makedirs(temp_dir, exist_ok=True)
 
-        timestamp = int(time.time() * 1000)
-        temp_path = os.path.join(temp_dir, f"{name}_{timestamp}.ann.tmp")
+        # 使用 tempfile 创建临时文件
+        with tempfile.NamedTemporaryFile(dir=temp_dir, suffix='.ann.tmp', delete=False) as temp_file:
+            temp_path = temp_file.name
+            temp_file.close()
 
         reloaded_index: Optional[AnnoyIndex] = None
         try:
-            # 1. Save to temporary file
+            # 1. 保存到临时文件
             index.save(temp_path)
             save_duration = time.time() - start_save_time
             logger.info(f"索引 {name} 已保存到临时文件 {temp_path}，耗时: {save_duration:.2f} 秒。")
 
-            # 2. Explicitly unload to release file handles
+            # 2. 显式卸载以释放文件句柄
             index.unload()
             logger.info(f"索引 {name} 已从内存卸载以释放文件句柄。")
 
-            # Brief pause might still be helpful occasionally on Windows
-            # time.sleep(0.05)
-
-            # 3. Atomically replace the final file
+            # 3. 原子替换最终文件
             try:
                 os.replace(temp_path, final_path)
                 logger.info(f"成功将临时索引替换到最终位置: {final_path}")
-            except Exception as replace_e:
-                logger.error(f"替换索引文件 {temp_path} 到 {final_path} 失败: {replace_e}")
-                raise RuntimeError(f"无法更新索引文件 {final_path}") from replace_e
+            except OSError as replace_e:
+                logger.error(f"替换索引文件失败，尝试使用 shutil.move: {replace_e}")
+                shutil.move(temp_path, final_path)
+                logger.info(f"通过 shutil.move 成功替换索引文件: {final_path}")
 
-            # --- >>> 关键步骤：重新加载索引 <<< ---
-            # 4. Reload the index from the final path into a new instance
+            # 4. 重新加载索引
             try:
                 logger.info(f"尝试从 {final_path} 重新加载索引 {name}...")
                 reloaded_index = AnnoyIndex(self.vector_dim, self.index_type)
                 reloaded_index.load(final_path)
-                # Optional: Prefaulting can sometimes speed up the *first* query after load
-                # reloaded_index.load(final_path, prefault=True)
                 logger.info(f"索引 {name} 重新加载成功，包含 {reloaded_index.get_n_items()} 个项目。")
             except Exception as reload_e:
-                logger.error(f"重新加载索引 {name} 从 {final_path} 失败: {reload_e}")
-                # Decide how critical this is. If reload fails, the in-memory index is lost.
-                reloaded_index = None # Ensure it's None if reload fails
-                # Maybe raise an error here? Or just log and return None?
-                # Let's log and return None for now.
-            # --- >>> 结束重新加载 <<< ---
+                logger.error(f"重新加载索引 {name} 失败: {reload_e}")
+                reloaded_index = None
 
-            return reloaded_index # Return the newly loaded index (or None if reload failed)
+            return reloaded_index
 
         except Exception as e:
             logger.error(f"保存、替换或重新加载索引 {name} 过程中失败: {str(e)}")
             logger.error(f"错误堆栈: {traceback.format_exc()}")
-            # Clean up temporary file if it exists
+            # 清理临时文件
             if os.path.exists(temp_path):
                 try:
                     os.remove(temp_path)
                     logger.info(f"已删除失败过程中的临时索引文件: {temp_path}")
                 except OSError as rm_e:
                     logger.warning(f"删除临时索引文件 {temp_path} 失败: {rm_e}")
-            return None # Return None on failure
-
+            return None
 
     def _save_indices(self):
         """保存索引和元数据，并更新内存中的索引实例为重新加载后的版本"""
@@ -465,55 +424,45 @@ class VectorStore:
                 with open(metadata_path, 'r', encoding='utf-8') as f:
                     self.metadata = json.load(f)
             
-            # 加载所有索引
-            indices = [
-                (self.summary_index, "summary"),
-                (self.test_steps_index, "test_steps"),
-                (self.expected_result_index, "expected_result"),
-                (self.actual_result_index, "actual_result"),
-                (self.code_index, "code"),
-                (self.log_info_index, "log_info"),
-                (self.environment_index, "environment")
-            ]
+            # 使用统一的索引加载函数
+            loaded_indices = self._load_all_indices(for_read=False)
             
-            for index, name in indices:
-                index_path = os.path.join(self.data_dir, f"{name}.ann")
-                if os.path.exists(index_path):
-                    try:
-                        index.load(index_path)
-                        logger.info(f"成功加载索引: {name}, 包含 {index.get_n_items()} 个项目")
-                    except Exception as e:
-                        logger.warning(f"加载索引 {name} 失败: {str(e)}")
-                        # 如果加载失败，创建新的空索引
-                        index = AnnoyIndex(self.vector_dim, self.index_type)
-                        index.build(10)
-                        logger.info(f"创建新的空索引: {name}")
+            # 更新类实例的索引属性
+            for name, index in loaded_indices.items():
+                setattr(self, f"{name}_index", index)
+                
         except Exception as e:
             logger.error(f"加载现有数据失败: {str(e)}")
             logger.error(f"错误堆栈: {traceback.format_exc()}")
             # 如果加载失败，创建新的空索引
             self._create_new_indices()
-    
+
     def search(self, query_vectors: Dict[str, Any], n_results: int = 5, weights: Dict[str, float] = None) -> List[Dict]:
-        """搜索相似的bug报告"""
+        """
+        搜索相似的bug报告
+        
+        Args:
+            query_vectors: 查询向量字典
+            n_results: 返回结果数量
+            weights: 各字段权重字典
+            
+        Returns:
+            List[Dict]: 相似bug报告列表
+        """
         try:
             logger.info(f"开始搜索，请求返回 {n_results} 个结果")
             
-            # 如果索引为None，尝试加载
-            if self.summary_index is None:
-                self.summary_index = self._create_or_load_index("summary", True)
-            if self.code_index is None:
-                self.code_index = self._create_or_load_index("code", True)
-            if self.test_steps_index is None:
-                self.test_steps_index = self._create_or_load_index("test_steps", True)
-            if self.expected_result_index is None:
-                self.expected_result_index = self._create_or_load_index("expected_result", True)
-            if self.actual_result_index is None:
-                self.actual_result_index = self._create_or_load_index("actual_result", True)
-            if self.log_info_index is None:
-                self.log_info_index = self._create_or_load_index("log_info", True)
-            if self.environment_index is None:
-                self.environment_index = self._create_or_load_index("environment", True)
+            # 使用统一的索引加载函数加载所有索引
+            loaded_indices = self._load_all_indices(for_read=True)
+            
+            # 更新类实例的索引属性
+            self.summary_index = loaded_indices.get("summary")
+            self.code_index = loaded_indices.get("code")
+            self.test_steps_index = loaded_indices.get("test_steps")
+            self.expected_result_index = loaded_indices.get("expected_result")
+            self.actual_result_index = loaded_indices.get("actual_result")
+            self.log_info_index = loaded_indices.get("log_info")
+            self.environment_index = loaded_indices.get("environment")
                 
             # 如果没有提供权重，使用默认权重
             if weights is None:
@@ -543,48 +492,34 @@ class VectorStore:
             
             # 获取所有索引中的结果数量
             total_index_items = 0
-            if self.summary_index:
-                total_index_items = max(total_index_items, self.summary_index.get_n_items())
+            for index in loaded_indices.values():
+                if index:
+                    total_index_items = max(total_index_items, index.get_n_items())
             
             # 计算要请求的结果数量 - 确保足够多
             requested_results = min(max(50, n_results * 10), total_index_items) if total_index_items > 0 else max(50, n_results * 10)
             logger.info(f"预计返回 {requested_results} 个初始结果进行排序和过滤")
             
             # 对每个向量进行搜索
-            if "summary_vector" in query_vectors and self.summary_index is not None:
-                summary_results = self._search_index(self.summary_index, query_vectors["summary_vector"], 
-                                               requested_results, weights.get("summary", 0))
-                results.update(summary_results)
+            vector_to_index_mapping = {
+                "summary_vector": ("summary", self.summary_index),
+                "code_vector": ("code", self.code_index),
+                "test_steps_vector": ("test_steps", self.test_steps_index),
+                "expected_result_vector": ("expected_result", self.expected_result_index),
+                "actual_result_vector": ("actual_result", self.actual_result_index),
+                "log_info_vector": ("log_info", self.log_info_index),
+                "environment_vector": ("environment", self.environment_index)
+            }
             
-            if "code_vector" in query_vectors and self.code_index is not None:
-                code_results = self._search_index(self.code_index, query_vectors["code_vector"], 
-                                               requested_results, weights.get("code", 0))
-                results.update(code_results)
-            
-            if "test_steps_vector" in query_vectors and self.test_steps_index is not None:
-                test_steps_results = self._search_index(self.test_steps_index, query_vectors["test_steps_vector"], 
-                                               requested_results, weights.get("test_steps", 0))
-                results.update(test_steps_results)
-            
-            if "expected_result_vector" in query_vectors and self.expected_result_index is not None:
-                expected_results = self._search_index(self.expected_result_index, query_vectors["expected_result_vector"], 
-                                               requested_results, weights.get("expected_result", 0))
-                results.update(expected_results)
-            
-            if "actual_result_vector" in query_vectors and self.actual_result_index is not None:
-                actual_results = self._search_index(self.actual_result_index, query_vectors["actual_result_vector"], 
-                                               requested_results, weights.get("actual_result", 0))
-                results.update(actual_results)
-            
-            if "log_info_vector" in query_vectors and self.log_info_index is not None:
-                log_results = self._search_index(self.log_info_index, query_vectors["log_info_vector"], 
-                                               requested_results, weights.get("log_info", 0))
-                results.update(log_results)
-            
-            if "environment_vector" in query_vectors and self.environment_index is not None:
-                environment_results = self._search_index(self.environment_index, query_vectors["environment_vector"], 
-                                               requested_results, weights.get("environment", 0))
-                results.update(environment_results)
+            for vector_key, (index_name, index) in vector_to_index_mapping.items():
+                if vector_key in query_vectors and index is not None:
+                    try:
+                        index_results = self._search_index(index, query_vectors[vector_key], 
+                                                        requested_results, weights.get(index_name, 0))
+                        results.update(index_results)
+                    except Exception as e:
+                        logger.error(f"搜索索引 {index_name} 时出错: {str(e)}")
+                        continue
             
             # 如果没有结果，返回空列表
             if not results:
@@ -639,12 +574,12 @@ class VectorStore:
         except Exception as e:
             logger.error(f"搜索失败: {str(e)}")
             logger.error(f"错误堆栈: {traceback.format_exc()}")
-            # 返回空结果而不是抛出异常
             return []
     
     def _search_index(self, index: AnnoyIndex, vector: List[float], n_results: int, weight: float) -> Dict[int, Dict]:
         """在单个索引中搜索"""
         if index is None or index.get_n_items() == 0 or weight == 0:
+            logger.warning(f"索引为空或权重为0，无法搜索。索引: {index}, 项目数: {index.get_n_items() if index else 0}, 权重: {weight}")
             return {}
         
         try:
@@ -683,5 +618,6 @@ class VectorStore:
         except Exception as e:
             logger.error(f"搜索索引失败: {str(e)}")
             logger.error(f"错误堆栈: {traceback.format_exc()}")
+            logger.error(f"搜索参数: 向量长度={len(vector)}, 请求结果数={n_results}, 权重={weight}")
             # 返回空结果而不是抛出异常
             return {}
