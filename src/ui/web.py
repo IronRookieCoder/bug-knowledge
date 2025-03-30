@@ -4,20 +4,13 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, JSONResponse
 import uvicorn
 from typing import List, Optional, Dict, Any
-import uuid
 from datetime import datetime
 import logging
-import webbrowser
-import threading
-import time
 import socket
 import traceback
 import os
 import pickle
-import base64
-import tempfile
 import json
-import shutil
 from annoy import AnnoyIndex
 
 from src.models.bug_models import BugReport
@@ -147,8 +140,8 @@ def create_web_app(searcher: BugSearcher, config: AppConfig) -> FastAPI:
                 "summary": bool(summary and summary.strip()),
                 "code": bool(code and code.strip()),
                 "test": bool((test_steps and test_steps.strip()) or 
-                            (expected_behavior and expected_behavior.strip()) or 
-                            (actual_behavior and actual_behavior.strip())),
+                        (expected_behavior and expected_behavior.strip()) or 
+                        (actual_behavior and actual_behavior.strip())),
                 "log": bool(error_logs and error_logs.strip())
             }
             
@@ -159,18 +152,16 @@ def create_web_app(searcher: BugSearcher, config: AppConfig) -> FastAPI:
                 logger.warning("没有提供任何搜索条件")
                 return {"status": "error", "message": "请至少输入一个搜索条件"}
             
-            # 获取搜索结果, 请求更多结果
-            actual_n_results = max(n_results * 2, 10)
-            logger.info(f"执行搜索, 请求 {actual_n_results} 个结果")
+            logger.info(f"执行搜索, 请求 {n_results} 个结果")
             
             results = searcher.search(
-                query_text=summary,
+                summary=summary,
                 test_steps=test_steps,
                 expected_result=expected_behavior,
                 actual_result=actual_behavior,
                 code=code,
                 log_info=error_logs,
-                n_results=actual_n_results
+                n_results=n_results
             )
             
             # 记录搜索结果
@@ -178,9 +169,9 @@ def create_web_app(searcher: BugSearcher, config: AppConfig) -> FastAPI:
                 logger.info(f"搜索完成, 获得 {len(results)} 个结果")
                 result_ids = [r["bug_id"] for r in results[:min(10, len(results))]]
                 logger.info(f"搜索结果ID: {result_ids}")
-                # 记录每个结果的相似度得分
+                # 记录每个结果的相似度得分和详细信息
                 for i, result in enumerate(results[:min(5, len(results))], 1):
-                    logger.info(f"结果 #{i}: ID={result['bug_id']}, 距离={result['distance']}")
+                    logger.info(f"结果 #{i}: ID={result['bug_id']}, 距离={result['distance']}, 摘要={result['summary'][:50]}...")
             else:
                 logger.info("未找到匹配的结果")
             
@@ -211,21 +202,21 @@ def start_web_app(searcher: BugSearcher, config: AppConfig, host: str = "127.0.0
         app = create_web_app(searcher, config)
         
         # 配置热重载选项
-        reload_config = None
+        uvicorn_config = {
+            "host": host,
+            "port": port,
+        }
+        
         if reload:
-            reload_config = {
-                "reload": True,
-                "reload_dirs": reload_dirs or ["src"],
-                "reload_includes": reload_includes or ["*.py"],
-                "reload_excludes": reload_excludes or ["*.pyc", "__pycache__"]
-            }
+            uvicorn_config["reload"] = True
+            uvicorn_config["reload_dirs"] = reload_dirs or ["src"]
+            uvicorn_config["reload_includes"] = reload_includes or ["*.py"]
+            uvicorn_config["reload_excludes"] = reload_excludes or ["*.pyc", "__pycache__"]
         
         # 启动服务器
         uvicorn.run(
             app,
-            host=host,
-            port=port,
-            **({} if reload_config is None else reload_config)
+            **uvicorn_config
         )
         
     except Exception as e:
@@ -286,10 +277,11 @@ def create_app(searcher: BugSearcher, config: AppConfig) -> FastAPI:
                             time.sleep(retry_delay)
                         else:
                             logger.error(f"加载索引 {index_name} 失败，已达到最大重试次数")
-                            # 如果加载失败，创建一个新的空索引
+                            # 如果加载失败，创建一个新的空索引并保存
                             index = AnnoyIndex(384, 'angular')
                             index.build(10)
-                            logger.info(f"创建新的空索引: {index_name}")
+                            index.save(index_path)
+                            logger.info(f"创建并保存新的空索引: {index_name}")
         
         return create_web_app(searcher, config)
     except Exception as e:

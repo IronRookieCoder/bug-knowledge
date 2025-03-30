@@ -181,11 +181,22 @@ def generate_mock_data(count: int = 10) -> List[Dict]:
         num_related = random.randint(0, 2)
         related_issues = [f"BUG-{uuid.uuid4().hex[:8]}" for _ in range(num_related)]
         
+        # 修改为标准diff格式
+        diff_content = f"""diff --git a/src/features/feature_{i+1}.py b/src/features/feature_{i+1}.py
+--- a/src/features/feature_{i+1}.py
++++ b/src/features/feature_{i+1}.py
+@@ -1,5 +1,6 @@
+ def example_function():
+-    print("Original code")
++    print("Modified code")
++    print("Added line")
+"""
+
         bug_report = {
             "bug_id": f"BUG-{uuid.uuid4().hex[:8]}",
             "summary": BUG_TITLES[title_idx],
             "file_paths": [f"src/features/feature_{i+1}.py"],
-            "code_diffs": [f"diff --git a/src/features/feature_{i+1}.py b/src/features/feature_{i+1}.py"],
+            "code_diffs": [diff_content],  # 使用标准diff格式
             "aggregated_added_code": CODE_SNIPPETS[code_idx],
             "aggregated_removed_code": "",
             "test_steps": "1. 启动系统\n2. 执行特定操作\n3. 观察错误现象",

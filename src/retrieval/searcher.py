@@ -86,7 +86,7 @@ class BugSearcher:
             logger.error(f"错误堆栈: {traceback.format_exc()}")
             return False
     
-    def _determine_query_type(self, query_text: Optional[str] = None,
+    def _determine_query_type(self, summary: Optional[str] = None,
                           code: Optional[str] = None,
                           test_steps: Optional[str] = None,
                           expected_result: Optional[str] = None,
@@ -94,20 +94,20 @@ class BugSearcher:
                           log_info: Optional[str] = None,
                           environment: Optional[str] = None) -> str:
         """确定查询类型"""
-        if code and not (query_text or test_steps or expected_result or actual_result or log_info or environment):
+        if code and not (summary or test_steps or expected_result or actual_result or log_info or environment):
             return "code_only"
-        elif (test_steps or expected_result or actual_result) and not (query_text or code or log_info or environment):
+        elif (test_steps or expected_result or actual_result) and not (summary or code or log_info or environment):
             return "test_only"
-        elif log_info and not (query_text or code or test_steps or expected_result or actual_result or environment):
+        elif log_info and not (summary or code or test_steps or expected_result or actual_result or environment):
             return "log_only"
-        elif environment and not (query_text or code or test_steps or expected_result or actual_result or log_info):
+        elif environment and not (summary or code or test_steps or expected_result or actual_result or log_info):
             return "environment_only"
-        elif query_text and not (code or test_steps or expected_result or actual_result or log_info or environment):
+        elif summary and not (code or test_steps or expected_result or actual_result or log_info or environment):
             return "summary_only"
         else:
             return "mixed"
 
-    def search(self, query_text: Optional[str] = None,
+    def search(self, summary: Optional[str] = None,
              code: Optional[str] = None,
              test_steps: Optional[str] = None,
              expected_result: Optional[str] = None,
@@ -118,7 +118,7 @@ class BugSearcher:
         """搜索相似BUG报告
         
         Args:
-            query_text: 问题描述
+            summary: 问题描述
             code: 代码片段
             test_steps: 重现缺陷的测试步骤
             expected_result: 预期结果
@@ -133,7 +133,7 @@ class BugSearcher:
         try:
             # 确定查询类型
             query_type = self._determine_query_type(
-                query_text, code, test_steps, expected_result, 
+                summary, code, test_steps, expected_result, 
                 actual_result, log_info, environment
             )
             
@@ -142,8 +142,8 @@ class BugSearcher:
             
             # 生成查询向量
             query_vectors = {}
-            if query_text:
-                query_vectors["summary_vector"] = self.vectorizer.summary_vectorizer.vectorize(query_text)
+            if summary:
+                query_vectors["summary_vector"] = self.vectorizer.summary_vectorizer.vectorize(summary)
             if code:
                 query_vectors["code_vector"] = self.vectorizer.code_vectorizer.vectorize(code)
             if test_steps or expected_result or actual_result:

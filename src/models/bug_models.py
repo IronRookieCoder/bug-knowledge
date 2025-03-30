@@ -32,7 +32,23 @@ class BugReport(BaseModel):
                 "bug_id": "BUG-2024-001",
                 "summary": "在长时间运行后观察到内存使用量持续增长",
                 "file_paths": ["src/processor.py"],
-                "code_diffs": ["diff --git a/src/processor.py b/src/processor.py"],
+                "code_diffs": [
+                    "diff --git a/src/processor.py b/src/processor.py",
+                    "index 1234567..89abcde 100644",
+                    "--- a/src/processor.py",
+                    "+++ b/src/processor.py",
+                    "@@ -10,7 +10,9 @@ class DataProcessor:",
+                    "-    def process_data(data):",
+                    "-        cache = []",
+                    "-        cache.extend(data)",
+                    "-        return cache",
+                    "+    def process_data(data):",
+                    "+        cache = []",
+                    "+        cache.extend(data)",
+                    "+        result = self._process_cache(cache)",
+                    "+        cache.clear()",
+                    "+        return result"
+                ],
                 "aggregated_added_code": "def process_data(data):\n    cache = []\n    cache.extend(data)\n    return cache",
                 "aggregated_removed_code": "",
                 "test_steps": "1. 启动应用\n2. 持续运行24小时\n3. 监控内存使用情况",
@@ -52,4 +68,4 @@ class BugReport(BaseModel):
                 "handlers": ["张三", "李四"],
                 "project_id": "PROJ-001"
             }
-        } 
+        }
