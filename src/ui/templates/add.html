@@ -5,102 +5,220 @@
   <div class="row">
     <div class="col-md-6 mb-3">
       <label for="bug_id" class="form-label">BUG ID</label>
-      <input type="text" class="form-control" id="bug_id" name="bug_id" required />
+      <input
+        type="text"
+        class="form-control"
+        id="bug_id"
+        name="bug_id"
+        required
+      />
     </div>
     <div class="col-md-6 mb-3">
       <label for="summary" class="form-label">BUG摘要</label>
-      <input type="text" class="form-control" id="summary" name="summary" required />
+      <input
+        type="text"
+        class="form-control"
+        id="summary"
+        name="summary"
+        required
+      />
     </div>
   </div>
 
   <div class="mb-3">
-    <label for="file_paths" class="form-label">受影响的文件路径（每行一个）</label>
-    <textarea class="form-control" id="file_paths" name="file_paths" rows="3" required></textarea>
+    <label for="file_paths" class="form-label"
+      >受影响的文件路径（每行一个）</label
+    >
+    <textarea
+      class="form-control"
+      id="file_paths"
+      name="file_paths"
+      rows="3"
+      required
+    ></textarea>
   </div>
 
   <div class="mb-3">
-    <label for="code_diffs" class="form-label">代码差异（每行一个）</label>
-    <textarea class="form-control" id="code_diffs" name="code_diffs" rows="3" required></textarea>
+    <label for="code_diffs" class="form-label">代码差异（diff格式）</label>
+    <textarea
+      class="form-control"
+      id="code_diffs"
+      name="code_diffs"
+      rows="3"
+      required
+    ></textarea>
   </div>
 
   <div class="row">
     <div class="col-md-6 mb-3">
       <label for="aggregated_added_code" class="form-label">新增代码</label>
-      <textarea class="form-control" id="aggregated_added_code" name="aggregated_added_code" rows="5" required></textarea>
+      <textarea
+        class="form-control"
+        id="aggregated_added_code"
+        name="aggregated_added_code"
+        rows="5"
+        required
+      ></textarea>
     </div>
     <div class="col-md-6 mb-3">
       <label for="aggregated_removed_code" class="form-label">删除代码</label>
-      <textarea class="form-control" id="aggregated_removed_code" name="aggregated_removed_code" rows="5" required></textarea>
+      <textarea
+        class="form-control"
+        id="aggregated_removed_code"
+        name="aggregated_removed_code"
+        rows="5"
+        required
+      ></textarea>
     </div>
   </div>
 
   <div class="mb-3">
     <label for="test_steps" class="form-label">重现步骤</label>
-    <textarea class="form-control" id="test_steps" name="test_steps" rows="3" required></textarea>
+    <textarea
+      class="form-control"
+      id="test_steps"
+      name="test_steps"
+      rows="3"
+      required
+    ></textarea>
   </div>
 
   <div class="row">
     <div class="col-md-6 mb-3">
       <label for="expected_result" class="form-label">期望结果</label>
-      <textarea class="form-control" id="expected_result" name="expected_result" rows="3" required></textarea>
+      <textarea
+        class="form-control"
+        id="expected_result"
+        name="expected_result"
+        rows="3"
+        required
+      ></textarea>
     </div>
     <div class="col-md-6 mb-3">
       <label for="actual_result" class="form-label">实际结果</label>
-      <textarea class="form-control" id="actual_result" name="actual_result" rows="3" required></textarea>
+      <textarea
+        class="form-control"
+        id="actual_result"
+        name="actual_result"
+        rows="3"
+        required
+      ></textarea>
     </div>
   </div>
 
   <div class="mb-3">
     <label for="log_info" class="form-label">错误日志</label>
-    <textarea class="form-control" id="log_info" name="log_info" rows="3" required></textarea>
+    <textarea
+      class="form-control"
+      id="log_info"
+      name="log_info"
+      rows="3"
+      required
+    ></textarea>
   </div>
 
   <div class="row">
     <div class="col-md-6 mb-3">
       <label for="severity" class="form-label">严重程度</label>
-      <input type="text" class="form-control" id="severity" name="severity" required />
+      <input
+        type="text"
+        class="form-control"
+        id="severity"
+        name="severity"
+        required
+      />
     </div>
     <div class="col-md-6 mb-3">
       <label for="is_reappear" class="form-label">是否可重现</label>
-      <input type="text" class="form-control" id="is_reappear" name="is_reappear" required />
+      <input
+        type="text"
+        class="form-control"
+        id="is_reappear"
+        name="is_reappear"
+        required
+      />
     </div>
   </div>
 
   <div class="mb-3">
     <label for="environment" class="form-label">环境信息</label>
-    <input type="text" class="form-control" id="environment" name="environment" required />
+    <input
+      type="text"
+      class="form-control"
+      id="environment"
+      name="environment"
+      required
+    />
   </div>
 
   <div class="row">
     <div class="col-md-6 mb-3">
       <label for="root_cause" class="form-label">根本原因</label>
-      <textarea class="form-control" id="root_cause" name="root_cause" rows="3"></textarea>
+      <textarea
+        class="form-control"
+        id="root_cause"
+        name="root_cause"
+        rows="3"
+      ></textarea>
     </div>
     <div class="col-md-6 mb-3">
       <label for="fix_solution" class="form-label">修复方案</label>
-      <textarea class="form-control" id="fix_solution" name="fix_solution" rows="3"></textarea>
+      <textarea
+        class="form-control"
+        id="fix_solution"
+        name="fix_solution"
+        rows="3"
+      ></textarea>
     </div>
   </div>
 
   <div class="row">
     <div class="col-md-6 mb-3">
-      <label for="related_issues" class="form-label">相关问题（JSON数组格式）</label>
-      <textarea class="form-control" id="related_issues" name="related_issues" rows="2">[]</textarea>
+      <label for="related_issues" class="form-label"
+        >相关问题（JSON数组格式）</label
+      >
+      <textarea
+        class="form-control"
+        id="related_issues"
+        name="related_issues"
+        rows="2"
+      >
+[]</textarea
+      >
     </div>
     <div class="col-md-6 mb-3">
       <label for="fix_person" class="form-label">修复人员</label>
-      <input type="text" class="form-control" id="fix_person" name="fix_person" />
+      <input
+        type="text"
+        class="form-control"
+        id="fix_person"
+        name="fix_person"
+      />
     </div>
   </div>
 
   <div class="mb-3">
     <label for="handlers" class="form-label">处理人员（JSON数组格式）</label>
-    <textarea class="form-control" id="handlers" name="handlers" rows="2" required>[]</textarea>
+    <textarea
+      class="form-control"
+      id="handlers"
+      name="handlers"
+      rows="2"
+      required
+    >
+[]</textarea
+    >
   </div>
 
   <div class="mb-3">
     <label for="project_id" class="form-label">项目ID</label>
-    <input type="text" class="form-control" id="project_id" name="project_id" required />
+    <input
+      type="text"
+      class="form-control"
+      id="project_id"
+      name="project_id"
+      required
+    />
   </div>
 
   <button type="submit" class="btn btn-primary">提交</button>

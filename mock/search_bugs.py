@@ -34,7 +34,7 @@ def search_bugs():
         if choice == "1":
             query = input("\n请输入问题描述: ")
             results = searcher.search(
-                query_text=query,
+                summary=query,
                 n_results=n_results,
                 weights={"question": 1.0, "code": 0.0, "log": 0.0, "env": 0.0}
             )
@@ -61,7 +61,7 @@ def search_bugs():
             )
         elif choice == "5":
             print("\n=== 混合搜索 ===")
-            query_text = input("问题描述: ")
+            summary = input("问题描述: ")
             code_snippet = input("代码片段: ")
             error_log = input("错误日志: ")
             env_info = input("环境信息: ")
@@ -74,7 +74,7 @@ def search_bugs():
             w_env = float(input("环境信息权重（默认0.1）: ") or "0.1")
             
             results = searcher.search(
-                query_text=query_text,
+                summary=summary,
                 code_snippet=code_snippet,
                 error_log=error_log,
                 env_info=env_info,

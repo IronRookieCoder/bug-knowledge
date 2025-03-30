@@ -1,6 +1,6 @@
 from typing import List, Dict
 import traceback
-from log import logger
+from utils.log import logger
 
 class BugSearcher:
     def search(
