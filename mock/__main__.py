@@ -39,8 +39,13 @@ def main():
     vector_store = VectorStore(data_dir=config.vector_store["data_dir"])
     searcher = BugSearcher(vector_store=vector_store)
     
-    # 加载测试数据
+    # 生成并加载测试数据
+    print("正在生成测试数据...")
+    save_mock_data()
+
+    print("正在加载测试数据...")
     searcher = load_mock_data(searcher=searcher)
+
     if searcher is None:
         console.print("[red]错误：加载测试数据失败[/red]")
         return
