@@ -231,9 +231,44 @@ class VectorStore:
 
         try:
             with self.db.transaction():
-                # 获取下一个可用的 bug_id
-                bug_id = self.db._generate_bug_id()
-                logger.info(f"新项目将使用 bug_id: {bug_id}")
+                # 从bug_report中获取bug_id
+                bug_data = bug_report if isinstance(bug_report, dict) else vars(bug_report)
+                bug_id = bug_data.get('bug_id')
+                
+                if not bug_id:
+                    logger.error("bug_id 不能为空")
+                    return False
+                    
+                logger.info(f"使用提供的 bug_id: {bug_id}")
+
+                # 检查bug_id是否存在
+                if self.db.bug_id_exists(bug_id):
+                    logger.info(f"bug_id {bug_id} 已存在，尝试更新...")
+                    # 获取现有记录的id
+                    existing_report = self.db.get_bug_report(bug_id)
+                    if not existing_report:
+                        logger.error("无法获取已存在的bug报告")
+                        return False
+                    db_id = existing_report['id']
+                    
+                    # 更新数据库记录
+                    if not self.db.update_bug_report(bug_id, bug_data):
+                        logger.error("更新 bug 报告失败")
+                        return False
+                else:
+                    # 添加新记录
+                    if not self.db.add_bug_report(bug_id, bug_data):
+                        logger.error("保存 bug 报告到数据库失败")
+                        return False
+                    
+                    # 获取新添加记录的id
+                    new_report = self.db.get_bug_report(bug_id)
+                    if not new_report:
+                        logger.error("无法获取新添加的bug报告")
+                        return False
+                    db_id = new_report['id']
+
+                logger.info(f"使用数据库id: {db_id}")
 
                 # 合并测试相关字段的向量
                 if "test_steps_vector" in vectors or "expected_result_vector" in vectors or "actual_result_vector" in vectors:
@@ -285,9 +320,9 @@ class VectorStore:
                     # 添加新项目的向量
                     if vector_key in vectors and vectors[vector_key] is not None:
                         try:
-                            new_index.add_item(int(bug_id), vectors[vector_key])
+                            new_index.add_item(db_id, vectors[vector_key])
                         except Exception as e_add_new:
-                            logger.error(f"Index {index_name}: 添加新项目 ID {bug_id} 时出错: {e_add_new}")
+                            logger.error(f"Index {index_name}: 添加新项目 ID {db_id} 时出错: {e_add_new}")
                             success = False
                             break
                     else:
@@ -303,12 +338,6 @@ class VectorStore:
                 self.test_info_index = new_indices.get("test_info")
                 self.log_info_index = new_indices.get("log_info")
                 self.environment_index = new_indices.get("environment")
-
-                # 保存 bug 报告到数据库
-                bug_data = bug_report if isinstance(bug_report, dict) else vars(bug_report)
-                if not self.db.add_bug_report(bug_id, bug_data):
-                    logger.error("保存 bug 报告到数据库失败")
-                    return False
 
                 # 保存索引
                 self._save_indices()
@@ -354,18 +383,18 @@ class VectorStore:
                 
                 # 应用权重
                 weight = weights.get(index_name, 0.0)
-                for bug_id, distance in results.items():
-                    if bug_id not in all_results:
-                        all_results[bug_id] = {"raw_distance": 0.0, "weight": 0.0}
-                    all_results[bug_id]["raw_distance"] += distance
-                    all_results[bug_id]["weight"] += weight
+                for db_id, distance in results.items():
+                    if db_id not in all_results:
+                        all_results[db_id] = {"raw_distance": 0.0, "weight": 0.0}
+                    all_results[db_id]["raw_distance"] += distance
+                    all_results[db_id]["weight"] += weight
 
             # 计算加权距离
             weighted_results = []
-            for bug_id, data in all_results.items():
+            for db_id, data in all_results.items():
                 if data["weight"] > 0:
                     weighted_distance = data["raw_distance"] / data["weight"]
-                    weighted_results.append((bug_id, weighted_distance))
+                    weighted_results.append((db_id, weighted_distance))
 
             # 按距离排序
             weighted_results.sort(key=lambda x: x[1])
@@ -375,8 +404,8 @@ class VectorStore:
             
             # 获取完整的bug报告信息
             final_results = []
-            for bug_id, distance in top_results:
-                bug_report = self.db.get_bug_report(str(bug_id))
+            for db_id, distance in top_results:
+                bug_report = self.db.get_bug_report_by_id(db_id)
                 if bug_report:
                     bug_report["distance"] = distance
                     final_results.append(bug_report)

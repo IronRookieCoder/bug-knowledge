@@ -3,6 +3,7 @@ from pydantic import BaseModel, Field
 from datetime import datetime
 
 class BugReport(BaseModel):
+    id: Optional[int] = Field(None, description="数据库主键")
     bug_id: str = Field(..., description="缺陷的唯一标识符")
     summary: str = Field(..., description="缺陷的简要描述")
     file_paths: List[str] = Field(..., description="受影响的文件路径列表")
@@ -29,6 +30,7 @@ class BugReport(BaseModel):
     class Config:
         json_schema_extra = {
             "example": {
+                "id": 1,
                 "bug_id": "BUG-2024-001",
                 "summary": "在长时间运行后观察到内存使用量持续增长",
                 "file_paths": ["src/processor.py"],
