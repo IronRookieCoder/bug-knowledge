@@ -83,13 +83,8 @@ class CodeVectorizer(BaseVectorizer):
             if isinstance(data, str):
                 text = data
             else:
-                # 组合所有代码相关信息
-                code_parts = []
-                code_parts.extend(data.code_diffs)
-                if data.aggregated_added_code:
-                    code_parts.append(data.aggregated_added_code)
-                if data.aggregated_removed_code:
-                    code_parts.append(data.aggregated_removed_code)
+                # 仅使用 code_diffs 字段
+                code_parts = data.code_diffs
                 text = "\n".join(code_parts)
             return self.model.encode(text).tolist()
         except Exception as e:
