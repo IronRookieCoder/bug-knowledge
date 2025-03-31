@@ -247,18 +247,48 @@
                             ? `
                             <div class="mb-3">
                                 <strong>相关文件：</strong>
-                                <p>${result.file_paths.join("<br>")}</p>
+                                <ul class="list-unstyled">
+                                    ${result.file_paths.map(path => `<li>${path}</li>`).join('')}
+                                </ul>
                             </div>
                         `
                             : ""
                         }
                         
                         ${
-                          result.code_diffs
+                          result.code_diffs && result.code_diffs.length > 0
                             ? `
                             <div class="mb-3">
                                 <strong>代码变更：</strong>
-                                <pre class="code-block">${result.code_diffs}</pre>
+                                ${result.code_diffs.map(diff => `
+                                    <pre class="code-block">${diff}</pre>
+                                `).join('')}
+                            </div>
+                        `
+                            : ""
+                        }
+                        
+                        ${
+                          result.related_issues && result.related_issues.length > 0
+                            ? `
+                            <div class="mb-3">
+                                <strong>相关问题：</strong>
+                                <ul class="list-unstyled">
+                                    ${result.related_issues.map(issue => `<li>${issue}</li>`).join('')}
+                                </ul>
+                            </div>
+                        `
+                            : ""
+                        }
+                        
+                        ${
+                          result.handlers && result.handlers.length > 0
+                            ? `
+                            <div class="mb-3">
+                                <strong>处理人：</strong>
+                                <ul class="list-unstyled">
+                                    ${result.handlers.map(handler => `<li>${handler}</li>`).join('')}
+                                </ul>
                             </div>
                         `
                             : ""
