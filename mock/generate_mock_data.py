@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from typing import List, Dict
 import uuid
 from pathlib import Path
+from src.models.bug_models import BugReport
 
 # 模拟数据模板
 BUG_TITLES = [
@@ -303,16 +304,56 @@ def generate_mock_data(count: int = 10) -> List[Dict]:
 
 def save_mock_data(count: int = 10):
     """生成并保存测试数据"""
+    from src.storage.vector_store import VectorStore
+    from src.retrieval.searcher import BugSearcher
+    
+    # 初始化搜索器
+    vector_store = VectorStore(data_dir="data/annoy")
+    searcher = BugSearcher(vector_store=vector_store)
+    
+    # 生成测试数据
     mock_data = generate_mock_data(count)
     
-    # 确保目录存在
-    data_dir = Path("mock/data")
-    data_dir.mkdir(parents=True, exist_ok=True)
+    # 加载数据到系统
+    total = len(mock_data)
+    success = 0
     
-    # 保存数据
-    with open(data_dir / "bug_reports.json", "w", encoding="utf-8") as f:
-        json.dump(mock_data, f, ensure_ascii=False, indent=2)
-    print(f"测试数据已生成并保存到 mock/data/bug_reports.json，共 {count} 条记录")
+    for data in mock_data:
+        try:
+            # 创建BugReport对象
+            bug_report = BugReport(
+                bug_id=data["bug_id"],
+                summary=data["summary"],
+                file_paths=data["file_paths"],
+                code_diffs=data["code_diffs"],
+                aggregated_added_code=data["aggregated_added_code"],
+                aggregated_removed_code=data["aggregated_removed_code"],
+                test_steps=data["test_steps"],
+                expected_result=data["expected_result"],
+                actual_result=data["actual_result"],
+                log_info=data["log_info"],
+                severity=data["severity"],
+                is_reappear=data["is_reappear"],
+                environment=data["environment"],
+                root_cause=data.get("root_cause"),
+                fix_solution=data.get("fix_solution"),
+                related_issues=data["related_issues"],
+                fix_person=data.get("fix_person"),
+                create_at=data["create_at"],
+                fix_date=data["fix_date"],
+                reopen_count=data["reopen_count"],
+                handlers=data["handlers"],
+                project_id=data["project_id"]
+            )
+            
+            # 添加到知识库
+            searcher.add_bug_report(bug_report)
+            success += 1
+        except Exception as e:
+            print(f"添加bug report失败: {str(e)}")
+            continue
+    
+    print(f"成功保存全部 {success} 条测试数据")
 
 if __name__ == "__main__":
     save_mock_data() 
