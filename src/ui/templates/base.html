@@ -5,7 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>{% block title %}BUG知识库系统{% endblock %}</title>
     <link
-      href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
+      rel="shortcut icon"
+      href="{{ url_for('static', path='favicon.ico') }}"
+    />
+    <link
+      href="{{ url_for('static', path='/css/bootstrap.min.css') }}"
       rel="stylesheet"
     />
     <link
@@ -40,7 +44,7 @@
 
     <div class="container mt-4">{% block content %}{% endblock %}</div>
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="{{ url_for('static', path='/js/bootstrap.min.js') }}"></script>
     {% block scripts %}{% endblock %}
   </body>
 </html>

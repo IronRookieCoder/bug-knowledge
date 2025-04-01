@@ -3,6 +3,7 @@ import time
 import traceback
 import shutil
 from typing import List, Dict, Optional, Tuple, Any
+import gc
 from pathlib import Path
 from functools import lru_cache
 from annoy import AnnoyIndex
