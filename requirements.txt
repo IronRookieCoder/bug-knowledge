@@ -8,3 +8,4 @@ rich==13.7.0
 typer==0.9.0
 python-dotenv==1.0.1
 unidiff==0.7.5
+apscheduler==3.11.0
