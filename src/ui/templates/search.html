@@ -211,7 +211,7 @@
                       index > 0 ? "border-top-0" : ""
                     }">
                         <div class="d-flex justify-content-between align-items-start mb-3">
-                            <h5 class="mb-0">BUG #${result.bug_id}</h5>
+                            <h5 class="mb-0">#${result.bug_id}</h5>
                             <span class="badge ${badgeClass}">
                                 相似度: ${similarity.toFixed(1)}%
                             </span>
@@ -248,7 +248,9 @@
                             <div class="mb-3">
                                 <strong>相关文件：</strong>
                                 <ul class="list-unstyled">
-                                    ${result.file_paths.map(path => `<li>${path}</li>`).join('')}
+                                    ${result.file_paths
+                                      .map((path) => `<li>${path}</li>`)
+                                      .join("")}
                                 </ul>
                             </div>
                         `
@@ -260,21 +262,28 @@
                             ? `
                             <div class="mb-3">
                                 <strong>代码变更：</strong>
-                                ${result.code_diffs.map(diff => `
+                                ${result.code_diffs
+                                  .map(
+                                    (diff) => `
                                     <pre class="code-block">${diff}</pre>
-                                `).join('')}
+                                `
+                                  )
+                                  .join("")}
                             </div>
                         `
                             : ""
                         }
                         
                         ${
-                          result.related_issues && result.related_issues.length > 0
+                          result.related_issues &&
+                          result.related_issues.length > 0
                             ? `
                             <div class="mb-3">
                                 <strong>相关问题：</strong>
                                 <ul class="list-unstyled">
-                                    ${result.related_issues.map(issue => `<li>${issue}</li>`).join('')}
+                                    ${result.related_issues
+                                      .map((issue) => `<li>${issue}</li>`)
+                                      .join("")}
                                 </ul>
                             </div>
                         `
@@ -287,7 +296,9 @@
                             <div class="mb-3">
                                 <strong>处理人：</strong>
                                 <ul class="list-unstyled">
-                                    ${result.handlers.map(handler => `<li>${handler}</li>`).join('')}
+                                    ${result.handlers
+                                      .map((handler) => `<li>${handler}</li>`)
+                                      .join("")}
                                 </ul>
                             </div>
                         `

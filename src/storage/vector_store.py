@@ -124,7 +124,6 @@ class VectorStore:
             elif current_self_index and current_self_index is index:
                  logger.debug(f"存储在 self.{name}_index 的实例与传入实例相同，无需重复卸载。")
 
-
             # --- 文件替换 ---
             logger.info(f"尝试原子替换: '{temp_path}' -> '{target_path}'")
             try:
@@ -141,7 +140,6 @@ class VectorStore:
             except Exception as move_err:
                 logger.error(f"文件替换时发生其他错误: {move_err}")
                 raise
-
 
             # --- 重新加载索引 ---
             logger.info(f"开始重新加载更新后的索引 '{name}' 从: {target_path}")
@@ -231,122 +229,106 @@ class VectorStore:
         start_time = time.time()
 
         try:
-            with self.db.transaction():
-                # 从bug_report中获取bug_id
-                bug_data = bug_report if isinstance(bug_report, dict) else vars(bug_report)
-                bug_id = bug_data.get('bug_id')
+            # 从bug_report中获取bug_id
+            bug_data = bug_report if isinstance(bug_report, dict) else vars(bug_report)
+            bug_id = bug_data.get('bug_id')
+            
+            if not bug_id:
+                logger.error("bug_id 不能为空")
+                return False
                 
-                if not bug_id:
-                    logger.error("bug_id 不能为空")
-                    return False
-                    
-                logger.info(f"使用提供的 bug_id: {bug_id}")
+            logger.info(f"使用提供的 bug_id: {bug_id}")
 
-                # 检查bug_id是否存在
-                if self.db.bug_id_exists(bug_id):
-                    logger.info(f"bug_id {bug_id} 已存在，尝试更新...")
-                    # 获取现有记录的id
-                    existing_report = self.db.get_bug_report(bug_id)
-                    if not existing_report:
-                        logger.error("无法获取已存在的bug报告")
-                        return False
-                    db_id = existing_report['id']
-                    
-                    # 更新数据库记录
-                    if not self.db.update_bug_report(bug_id, bug_data):
-                        logger.error("更新 bug 报告失败")
-                        return False
+            # 检查bug_id是否存在
+            if not self.db.bug_id_exists(bug_id):
+                logger.error(f"bug_id {bug_id} 不存在，无法添加向量")
+                return False
+
+            # 获取数据库id
+            bug_report = self.db.get_bug_report(bug_id)
+            if not bug_report:
+                logger.error("无法获取bug报告")
+                return False
+            db_id = bug_report['id']
+
+            logger.info(f"使用数据库id: {db_id}")
+
+            # 合并测试相关字段的向量
+            if "test_steps_vector" in vectors or "expected_result_vector" in vectors or "actual_result_vector" in vectors:
+                test_info = {
+                    "test_steps": bug_report.get("test_steps", ""),
+                    "expected_result": bug_report.get("expected_result", ""),
+                    "actual_result": bug_report.get("actual_result", "")
+                }
+                vectors["test_info_vector"] = next(
+                    (vectors[k] for k in ["test_steps_vector", "expected_result_vector", "actual_result_vector"] 
+                    if k in vectors and vectors[k] is not None),
+                    None
+                )
+
+            index_definitions = [
+                ("summary", "summary_vector"),
+                ("code", "code_vector"),
+                ("test_info", "test_info_vector"),
+                ("log_info", "log_info_vector"),
+                ("environment", "environment_vector"),
+            ]
+
+            new_indices: Dict[str, AnnoyIndex] = {}
+            success = True
+
+            # 为每个索引类型创建新实例
+            for index_name, vector_key in index_definitions:
+                logger.debug(f"处理索引: {index_name}")
+                new_index = AnnoyIndex(self.vector_dim, self.index_type)
+                new_indices[index_name] = new_index
+
+                # 加载现有索引数据
+                old_index_path = self._get_index_path(index_name)
+                if old_index_path.exists():
+                    try:
+                        old_index = AnnoyIndex(self.vector_dim, self.index_type)
+                        old_index.load(str(old_index_path))
+                        # 复制现有向量
+                        for item_id in range(old_index.get_n_items()):
+                            try:
+                                vector = old_index.get_item_vector(item_id)
+                                new_index.add_item(item_id, vector)
+                            except Exception as e:
+                                logger.warning(f"Index {index_name}: 复制向量 ID {item_id} 失败: {e}")
+                        old_index.unload()
+                    except Exception as e:
+                        logger.warning(f"加载旧索引 {index_name} 失败: {e}")
+
+                # 添加新项目的向量
+                if vector_key in vectors and vectors[vector_key] is not None:
+                    try:
+                        new_index.add_item(db_id, vectors[vector_key])
+                    except Exception as e_add_new:
+                        logger.error(f"Index {index_name}: 添加新项目 ID {db_id} 时出错: {e_add_new}")
+                        success = False
+                        break
                 else:
-                    # 添加新记录
-                    if not self.db.add_bug_report(bug_id, bug_data):
-                        logger.error("保存 bug 报告到数据库失败")
-                        return False
-                    
-                    # 获取新添加记录的id
-                    new_report = self.db.get_bug_report(bug_id)
-                    if not new_report:
-                        logger.error("无法获取新添加的bug报告")
-                        return False
-                    db_id = new_report['id']
+                    logger.debug(f"Index {index_name}: 没有为新项目提供向量 (key: {vector_key})。")
 
-                logger.info(f"使用数据库id: {db_id}")
+            if not success:
+                logger.error("由于添加新向量时出错，中止添加操作。")
+                return False
 
-                # 合并测试相关字段的向量
-                if "test_steps_vector" in vectors or "expected_result_vector" in vectors or "actual_result_vector" in vectors:
-                    test_info = {
-                        "test_steps": bug_report.test_steps if hasattr(bug_report, "test_steps") else "",
-                        "expected_result": bug_report.expected_result if hasattr(bug_report, "expected_result") else "",
-                        "actual_result": bug_report.actual_result if hasattr(bug_report, "actual_result") else ""
-                    }
-                    vectors["test_info_vector"] = next(
-                        (vectors[k] for k in ["test_steps_vector", "expected_result_vector", "actual_result_vector"] 
-                        if k in vectors and vectors[k] is not None),
-                        None
-                    )
+            # 更新内存中的索引实例
+            self.summary_index = new_indices.get("summary")
+            self.code_index = new_indices.get("code")
+            self.test_info_index = new_indices.get("test_info")
+            self.log_info_index = new_indices.get("log_info")
+            self.environment_index = new_indices.get("environment")
 
-                index_definitions = [
-                    ("summary", "summary_vector"),
-                    ("code", "code_vector"),
-                    ("test_info", "test_info_vector"),
-                    ("log_info", "log_info_vector"),
-                    ("environment", "environment_vector"),
-                ]
+            # 保存索引
+            self._save_indices()
 
-                new_indices: Dict[str, AnnoyIndex] = {}
-                success = True
-
-                # 为每个索引类型创建新实例
-                for index_name, vector_key in index_definitions:
-                    logger.debug(f"处理索引: {index_name}")
-                    new_index = AnnoyIndex(self.vector_dim, self.index_type)
-                    new_indices[index_name] = new_index
-
-                    # 加载现有索引数据
-                    old_index_path = self._get_index_path(index_name)
-                    if old_index_path.exists():
-                        try:
-                            old_index = AnnoyIndex(self.vector_dim, self.index_type)
-                            old_index.load(str(old_index_path))
-                            # 复制现有向量
-                            for item_id in range(old_index.get_n_items()):
-                                try:
-                                    vector = old_index.get_item_vector(item_id)
-                                    new_index.add_item(item_id, vector)
-                                except Exception as e:
-                                    logger.warning(f"Index {index_name}: 复制向量 ID {item_id} 失败: {e}")
-                            old_index.unload()
-                        except Exception as e:
-                            logger.warning(f"加载旧索引 {index_name} 失败: {e}")
-
-                    # 添加新项目的向量
-                    if vector_key in vectors and vectors[vector_key] is not None:
-                        try:
-                            new_index.add_item(db_id, vectors[vector_key])
-                        except Exception as e_add_new:
-                            logger.error(f"Index {index_name}: 添加新项目 ID {db_id} 时出错: {e_add_new}")
-                            success = False
-                            break
-                    else:
-                        logger.debug(f"Index {index_name}: 没有为新项目提供向量 (key: {vector_key})。")
-
-                if not success:
-                    logger.error("由于添加新向量时出错，中止添加操作。")
-                    return False
-
-                # 更新内存中的索引实例
-                self.summary_index = new_indices.get("summary")
-                self.code_index = new_indices.get("code")
-                self.test_info_index = new_indices.get("test_info")
-                self.log_info_index = new_indices.get("log_info")
-                self.environment_index = new_indices.get("environment")
-
-                # 保存索引
-                self._save_indices()
-
-                # 记录性能指标
-                end_time = time.time()
-                logger.info(f"添加 bug report 完成，耗时: {end_time - start_time:.3f}秒")
-                return True
+            # 记录性能指标
+            end_time = time.time()
+            logger.info(f"添加 bug report 完成，耗时: {end_time - start_time:.3f}秒")
+            return True
 
         except Exception as e:
             logger.error(f"添加 bug 报告失败: {str(e)}")

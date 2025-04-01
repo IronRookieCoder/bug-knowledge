@@ -1,0 +1,36 @@
+@startuml
+actor User
+participant "数据存储模块" as DataStorage
+participant "数据库" as Database
+participant "GitLab爬虫" as GitLabCrawler
+participant "TD爬虫" as TDCrawler
+participant "数据预处理模块" as Preprocessor
+participant "数据搜索模块" as SearchEngine
+participant "向量检索模块" as VectorSearch
+
+== 数据存储流程 ==
+User -> DataStorage: 初始化数据库
+DataStorage -> Database: 创建数据库结构
+
+User -> GitLabCrawler: 爬取GitLab数据
+GitLabCrawler --> DataStorage: 返回GitLab数据
+
+User -> TDCrawler: 爬取TD数据
+TDCrawler --> DataStorage: 返回TD数据
+
+DataStorage -> Preprocessor: 数据预处理
+Preprocessor --> DataStorage: 返回预处理后的数据
+
+DataStorage -> Database: 数据存储到SQLite
+DataStorage -> Database: 更新索引
+
+== 数据搜索流程 ==
+User -> SearchEngine: 发起搜索请求
+SearchEngine -> VectorSearch: 进行向量检索
+VectorSearch --> SearchEngine: 返回前N个结果
+
+SearchEngine -> Database: 根据id获取完整的bug信息
+Database --> SearchEngine: 返回完整bug信息
+
+SearchEngine --> User: 返回bug列表
+@enduml

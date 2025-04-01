@@ -9,9 +9,19 @@ from contextlib import contextmanager
 logger = logging.getLogger(__name__)
 
 class BugDatabase:
+    _instance = None
+    _initialized = False
+
+    def __new__(cls, db_path: str = "data/bugs.db"):
+        if cls._instance is None:
+            cls._instance = super(BugDatabase, cls).__new__(cls)
+        return cls._instance
+
     def __init__(self, db_path: str = "data/bugs.db"):
-        self.db_path = Path(db_path)
-        self._ensure_db_exists()
+        if not self._initialized:
+            self.db_path = Path(db_path)
+            self._ensure_db_exists()
+            self._initialized = True
     
     def _ensure_db_exists(self):
         """确保数据库和表存在"""
@@ -20,6 +30,7 @@ class BugDatabase:
         
         with self.get_connection() as conn:
             cursor = conn.cursor()
+            # 创建bug报告表
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS bug_reports (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -47,6 +58,7 @@ class BugDatabase:
                     project_id TEXT
                 )
             """)
+            
             conn.commit()
 
     @contextmanager

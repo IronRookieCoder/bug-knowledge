@@ -1,0 +1,63 @@
+@startuml
+' 结构图
+left to right direction
+
+package "AI DEBUG系统" {
+  component 数据获取 {
+    component 爬虫 {
+      component gitlab数据
+      component TD数据
+    }
+  }
+
+  component 数据清洗预处理 {
+    component 清理噪音数据
+    component 文本预处理
+    component 代码结构化处理
+  }
+
+  component BUG知识库 {
+    component 混合存储
+    component 向量化模块
+    component 检索模块
+    component 用户界面
+  }
+
+  component 输入层 {
+    component 错误信息
+    component 代码片段
+    component 问题描述
+    component 日志信息
+  }
+
+  component LLM分析引擎 {
+    component 错误信息解析
+    component 代码分析
+    component 原因推断
+    component 修复建议
+  }
+
+  component 输出层 {
+    component 结果展示
+    component 交互功能
+  }
+
+  component 系统集成 {
+    component chatWorkflow
+    component CICD流程
+    component 实时诊断
+  }
+
+  component API服务
+}
+
+数据获取 --> 数据清洗预处理 : 原始数据
+数据清洗预处理 --> BUG知识库 : 清洗后数据
+输入层 --> LLM分析引擎 : 分析请求
+LLM分析引擎 --> BUG知识库 : 查询请求
+BUG知识库 --> LLM分析引擎 : 相似bug信息
+LLM分析引擎 --> 输出层 : 分析结果
+API服务 --> 系统集成 : 系统对接
+系统集成 ..> 输入层 : 调用
+系统集成 ..> 输出层 : 获取结果
+@enduml
