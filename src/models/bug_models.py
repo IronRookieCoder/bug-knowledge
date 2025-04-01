@@ -1,11 +1,11 @@
 from typing import List, Optional, Dict, Tuple
 from pydantic import BaseModel, Field
-from datetime import datetime
 
 class BugReport(BaseModel):
     id: Optional[int] = Field(None, description="数据库主键")
     bug_id: str = Field(..., description="缺陷的唯一标识符")
     summary: str = Field(..., description="缺陷的简要描述")
+    description: str = Field(..., description="缺陷的详细描述")
     file_paths: List[str] = Field(..., description="受影响的文件路径列表")
     code_diffs: List[str] = Field(..., description="代码差异列表")
     aggregated_added_code: str = Field(..., description="所有新增代码的聚合")
@@ -33,6 +33,7 @@ class BugReport(BaseModel):
                 "id": 1,
                 "bug_id": "BUG-2024-001",
                 "summary": "在长时间运行后观察到内存使用量持续增长",
+                "description": "在处理大量数据时，内存使用量持续增长，最终导致内存错误。",
                 "file_paths": ["src/processor.py"],
                 "code_diffs": [
                     "diff --git a/src/processor.py b/src/processor.py",

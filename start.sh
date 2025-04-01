@@ -13,7 +13,11 @@ if [ ! -d "venv" ]; then
 fi
 
 # 激活虚拟环境
-source venv/bin/activate
+if [[ "$OSTYPE" == "msys" ]] || [[ "$OSTYPE" == "win32" ]]; then
+    source venv/Scripts/activate
+else
+    source venv/bin/activate
+fi
 
 # 安装依赖
 if [ ! -f "venv/installed" ]; then
