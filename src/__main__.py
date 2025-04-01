@@ -52,25 +52,25 @@ def main():
     
     def run_task():
         if args.mode == "all":
-            logger("开始执行所有任务...")
+            logger.info("开始执行所有任务...")
             
             # 1. 爬虫任务
             try:
-                logger("1. 开始爬取数据...")
+                logger.info("1. 开始爬取数据...")
                 crawler_main()
             except Exception as e:
-                logger(f"爬虫任务执行失败: {str(e)}")
+                logger.error(f"爬虫任务执行失败: {str(e)}")
             
             # 2. 存储任务
             try:
-                logger("2. 开始构建向量索引...")
+                logger.info("2. 开始构建向量索引...")
                 storage_main()
             except Exception as e:
-                logger(f"向量索引构建失败: {str(e)}")
+                logger.error(f"向量索引构建失败: {str(e)}")
             
             # 3. Web服务
             try:
-                logger("3. 启动Web服务...")
+                logger.info("3. 启动Web服务...")
                 searcher = BugSearcher()
                 start_web_app(
                     searcher=searcher,
@@ -79,16 +79,16 @@ def main():
                     port=args.port,
                 )
             except Exception as e:
-                logger(f"Web服务启动失败: {str(e)}")
+                logger.error(f"Web服务启动失败: {str(e)}")
                 raise  # Web服务失败需要终止程序
         elif args.mode == "crawler":
-            logger("开始爬取数据...")
+            logger.info("开始爬取数据...")
             crawler_main()
         elif args.mode == "storage":
-            logger("开始构建向量索引...")
+            logger.info("开始构建向量索引...")
             storage_main()
         elif args.mode == "web":
-            logger("启动Web服务...")
+            logger.info("启动Web服务...")
             # 初始化搜索器
             searcher = BugSearcher()
             
@@ -101,25 +101,25 @@ def main():
             )
 
     if args.schedule:
-        logger("计划运行模式已启用，任务将按设定周期执行...")
+        logger.info("计划运行模式已启用，任务将按设定周期执行...")
         scheduler = BackgroundScheduler()
 
         def scheduled_task():
             try:
-                logger(f"\n[{time.strftime('%Y-%m-%d %H:%M:%S')}] 开始执行计划任务...")
+                logger.info(f"\n[{time.strftime('%Y-%m-%d %H:%M:%S')}] 开始执行计划任务...")
                 run_task()
-                logger(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 计划任务执行完成")
+                logger.info(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 计划任务执行完成")
             except Exception as e:
-                logger(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 计划任务执行失败: {str(e)}")
+                logger.error(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 计划任务执行失败: {str(e)}")
 
         if args.interval is not None:
             interval_hours = args.interval
-            logger(f"任务将按每 {interval_hours} 小时执行一次。")
+            logger.info(f"任务将按每 {interval_hours} 小时执行一次。")
             scheduler.add_job(scheduled_task, IntervalTrigger(hours=interval_hours))
         else:
             hour = args.hour
             minute = args.minute
-            logger(f"任务将每天 {hour:02d}:{minute:02d} 执行一次。")
+            logger.info(f"任务将每天 {hour:02d}:{minute:02d} 执行一次。")
             scheduler.add_job(scheduled_task, CronTrigger(hour=hour, minute=minute))
 
         scheduler.start()
@@ -127,9 +127,9 @@ def main():
             while True:
                 time.sleep(1)
         except (KeyboardInterrupt, SystemExit):
-            logger("\n检测到退出信号，正在停止调度器...")
+            logger.info("\n检测到退出信号，正在停止调度器...")
             scheduler.shutdown()
-            logger("调度器已停止，程序退出。")
+            logger.info("调度器已停止，程序退出。")
     else:
         run_task()  # 单次运行模式
 

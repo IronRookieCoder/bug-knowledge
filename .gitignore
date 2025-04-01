@@ -25,3 +25,4 @@ lm-models/
 
 data/
 pip_cache/
+logs/

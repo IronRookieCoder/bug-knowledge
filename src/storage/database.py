@@ -1,12 +1,10 @@
 import sqlite3
 import json
-import logging
 from pathlib import Path
 from typing import Dict, Any, Optional, List
 from datetime import datetime
 from contextlib import contextmanager
-
-logger = logging.getLogger(__name__)
+from src.utils.log import logger
 
 class BugDatabase:
     _instance = None

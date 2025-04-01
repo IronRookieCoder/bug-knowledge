@@ -4,12 +4,9 @@ from sentence_transformers import SentenceTransformer
 from sentence_transformers.models import Transformer, Pooling
 from src.models.bug_models import BugReport
 import os
-import logging
-import torch
+from src.utils.log import logging
 import traceback
 
-# 设置日志
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # 禁用在线模型下载

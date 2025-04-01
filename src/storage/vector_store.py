@@ -1,4 +1,3 @@
-import logging
 import time
 import traceback
 import shutil
@@ -8,6 +7,7 @@ from pathlib import Path
 from functools import lru_cache
 from annoy import AnnoyIndex
 from src.storage.database import BugDatabase
+from src.utils.log import logging
 
 logger = logging.getLogger(__name__)
 

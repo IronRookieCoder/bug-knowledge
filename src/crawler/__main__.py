@@ -47,15 +47,15 @@ def main():
                     if issue_details:
                         break
                 except Exception as e:
-                    logger(f"Error fetching details for bug {bug_id} with product_id {product_id}: {str(e)}")
+                    logger.error(f"Error fetching details for bug {bug_id} with product_id {product_id}: {str(e)}")
                     continue
 
             if not issue_details:
-                logger(f"Could not fetch details for bug {bug_id} from any TD configuration")
+                logger.error(f"Could not fetch details for bug {bug_id} from any TD configuration")
                 continue
 
         except Exception as e:
-            logger(f"Error fetching details for bug {bug_id}: {str(e)}")
+            logger.error(f"Error fetching details for bug {bug_id}: {str(e)}")
             continue
 
         try:
@@ -64,7 +64,7 @@ def main():
                 issue_details
             )
         except Exception as e:
-            logger(f"Error integrating data for bug {bug_id}: {str(e)}")
+            logger.error(f"Error integrating data for bug {bug_id}: {str(e)}")
             continue
 
         try:
@@ -72,7 +72,7 @@ def main():
             report_dict = report.__dict__
             db.add_bug_report(bug_id, report_dict)
         except Exception as e:
-            logger(f"Error saving report for bug {bug_id}: {str(e)}")
+            logger.error(f"Error saving report for bug {bug_id}: {str(e)}")
             continue
 
 

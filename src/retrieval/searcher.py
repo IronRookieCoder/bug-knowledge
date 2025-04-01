@@ -1,10 +1,10 @@
 from typing import List, Dict, Optional
-import logging
 from src.models.bug_models import BugReport
 from src.storage.vector_store import VectorStore
 from src.vectorization.vectorizers import HybridVectorizer
 import os
 import traceback
+from src.utils.log import logging
 
 # 设置日志
 logger = logging.getLogger(__name__)

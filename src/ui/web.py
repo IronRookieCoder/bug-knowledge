@@ -5,7 +5,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 import uvicorn
 from typing import List, Optional, Dict, Any
 from datetime import datetime
-import logging
+from src.utils.log import logging
 import socket
 import traceback
 import os
