@@ -11,7 +11,7 @@ sys.path.insert(0, project_root)
 
 from src.ui.web import start_web_app
 from src.retrieval.searcher import BugSearcher
-from src.config import AppConfig
+from src.config import config  # 使用全局配置实例
 from src.crawler.__main__ import main as crawler_main
 from src.storage.__main__ import main as storage_main
 
@@ -23,9 +23,9 @@ def main():
     parser = argparse.ArgumentParser(description="Bug知识库系统")
     parser.add_argument("--mode", choices=["crawler", "storage", "web", "all"], required=True,
                       help="运行模式：crawler(爬取数据), storage(构建向量索引), web(启动Web服务), all(按顺序执行所有任务)")
-    parser.add_argument("--host", default="127.0.0.1", help="Web服务器主机地址")
-    parser.add_argument("--port", type=int, default=8010, help="Web服务器端口")
-    parser.add_argument("--schedule", action="store_true", help="启用计划运行模式")  # 支持计划运行模式
+    parser.add_argument("--host", help="Web服务器主机地址")
+    parser.add_argument("--port", type=int, help="Web服务器端口")
+    parser.add_argument("--schedule", action="store_true", help="启用计划运行模式")
     parser.add_argument("--hour", type=int, default=2, help="任务执行的小时 (0-23)，默认为2 (凌晨2点)")
     parser.add_argument("--minute", type=int, default=0, help="任务执行的分钟 (0-59)，默认为0")
     parser.add_argument("--interval", type=int, help="任务执行的间隔时间（小时），与 --hour/--minute 互斥")
@@ -36,19 +36,11 @@ def main():
     if args.hour is not None and args.minute is not None and args.interval is not None:
         raise ValueError("不能同时指定 --hour/--minute 和 --interval，请选择一种调度模式。")
 
-    # 初始化配置
-    config = AppConfig(
-        vector_store={
-            "data_dir": "data/annoy",
-            "vector_dim": 384,
-            "index_type": "angular"
-        },
-        web={
-            "templates_dir": "src/ui/templates",
-            "static_dir": "src/ui/static"
-        },
-        searcher={}
-    )
+    # 使用命令行参数覆盖配置文件中的值
+    if args.host:
+        config._config['WEB']['host'] = args.host
+    if args.port:
+        config._config['WEB']['port'] = args.port
     
     def run_task():
         if args.mode == "all":
@@ -72,11 +64,12 @@ def main():
             try:
                 logger.info("3. 启动Web服务...")
                 searcher = BugSearcher()
+                web_config = config._config['WEB']
                 start_web_app(
                     searcher=searcher,
                     config=config,
-                    host=args.host,
-                    port=args.port,
+                    host=web_config['host'],
+                    port=web_config['port'],
                 )
             except Exception as e:
                 logger.error(f"Web服务启动失败: {str(e)}")
@@ -89,15 +82,13 @@ def main():
             storage_main()
         elif args.mode == "web":
             logger.info("启动Web服务...")
-            # 初始化搜索器
             searcher = BugSearcher()
-            
-            # 启动Web应用
+            web_config = config._config['WEB']
             start_web_app(
                 searcher=searcher,
                 config=config,
-                host=args.host,
-                port=args.port,
+                host=web_config['host'],
+                port=web_config['port'],
             )
 
     if args.schedule:

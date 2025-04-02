@@ -32,40 +32,54 @@ class TDCrawler:
         self.base_urls = base_urls
         self.headers_list = headers_list
 
-    def get_bug_details(self, bug_id: str, product_id: str) -> IssueDetails:
+    def get_bug_details(self, bug_id: str) -> Optional[IssueDetails]:
+        """获取bug详情，遍历所有配置直到找到匹配的bug"""
         for base_url, headers in zip(self.base_urls, self.headers_list):
-            url = f"{base_url}/api/v1/defect/by_key/{bug_id}?_t={self._get_timestamp()}"
-            headers["PRODUCT-ID"] = product_id
-            response = requests.get(url, headers=headers)
-            response.raise_for_status()
-            data = response.json()
-            data_data = data.get("data", {})
-            fields = data_data.get("fields", {})
+            try:
+                result = self._fetch_bug_details(bug_id, base_url, headers)
+                if result:
+                    return result
+            except requests.exceptions.RequestException:
+                continue
+        return None
 
-            # 确保desc和comment字段为字符串类型
-            desc_content = str(fields.get("desc", ""))  # 强制转换为字符串
-            comment_content = str(fields.get("comment", ""))  # 强制转换为字符串
+    def _fetch_bug_details(self, bug_id: str, base_url: str, headers: dict) -> Optional[IssueDetails]:
+        """从指定的TD系统获取bug详情"""
+        url = f"{base_url}/api/v1/defect/by_key/{bug_id}?_t={self._get_timestamp()}"
+        
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()
+        data = response.json()
+        data_data = data.get("data", {})
+        if not data_data:
+            return None
+            
+        fields = data_data.get("fields", {})
 
-            return IssueDetails(
-                bug_id=str(data_data.get("key")),
-                summary=fields.get("summary", ""),
-                severity=fields.get("severity", {}).get("name", "P4"),
-                is_reappear=fields.get("is_reappear", {}).get("value", "1"),
-                description=self._build_structured_description(desc_content),
-                test_steps=self._parse_desc_section(desc_content, "测试步骤"),
-                expected_result=self._parse_desc_section(desc_content, "期望结果"),
-                actual_result=self._parse_desc_section(desc_content, "实际结果"),
-                log_info=self._parse_desc_section(desc_content, "日志信息"),
-                environment=self._parse_desc_section(desc_content, "测试环境"),
-                root_cause=self._parse_comment_section(comment_content, r"问题根因.*?|问题原因.*?"),
-                fix_solution=self._parse_comment_section(comment_content, "如何修改"),
-                related_issues=self._parse_related_issues(comment_content),
-                fix_person=fields.get("fix_person", {}).get("display_name"),
-                create_at=fields.get("create_at", ""),
-                fix_date=fields.get("fix_date", ""),
-                reopen_count=fields.get("reopen_count", 0),
-                handlers=fields.get("handlers", [])
-            )
+        # 确保desc和comment字段为字符串类型
+        desc_content = str(fields.get("desc", ""))
+        comment_content = str(fields.get("comment", ""))
+
+        return IssueDetails(
+            bug_id=str(data_data.get("key")),
+            summary=fields.get("summary", ""),
+            severity=fields.get("severity", {}).get("name", "P4"),
+            is_reappear=fields.get("is_reappear", {}).get("value", "1"),
+            description=self._build_structured_description(desc_content),
+            test_steps=self._parse_desc_section(desc_content, "测试步骤"),
+            expected_result=self._parse_desc_section(desc_content, "期望结果"),
+            actual_result=self._parse_desc_section(desc_content, "实际结果"),
+            log_info=self._parse_desc_section(desc_content, "日志信息"),
+            environment=self._parse_desc_section(desc_content, "测试环境"),
+            root_cause=self._parse_comment_section(comment_content, r"问题根因.*?|问题原因.*?"),
+            fix_solution=self._parse_comment_section(comment_content, "如何修改"),
+            related_issues=self._parse_related_issues(comment_content),
+            fix_person=fields.get("fix_person", {}).get("display_name"),
+            create_at=fields.get("create_at", ""),
+            fix_date=fields.get("fix_date", ""),
+            reopen_count=fields.get("reopen_count", 0),
+            handlers=fields.get("handlers", [])
+        )
 
     def _build_structured_description(self, desc: str) -> str:
         """构建结构化的问题描述"""
