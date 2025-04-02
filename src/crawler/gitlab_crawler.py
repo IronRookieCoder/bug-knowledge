@@ -1,8 +1,10 @@
 import re
-import requests
+from src.utils.log import logging
 from dataclasses import dataclass
 from typing import List, Optional, Dict, Any
+from src.utils.http_client import http_client
 
+logger = logging.getLogger(__name__)
 
 @dataclass
 class CodeSnippet:
@@ -73,15 +75,19 @@ class GitLabCrawler:
         if self.until_date:
             params["until"] = self.until_date
 
+        logger.info(f"开始获取项目 {project_id} 的提交记录，时间范围: {self.since_date} - {self.until_date}")
+        
         all_commits = []
         while True:
-            response = requests.get(url, headers=self.headers, params=params)
-            response.raise_for_status()
+            response = http_client.get(url, headers=self.headers, params=params)
             commits = response.json()
             if not commits:
                 break
             all_commits.extend(commits)
+            logger.debug(f"项目 {project_id} 第 {params['page']} 页获取到 {len(commits)} 个提交")
             params["page"] += 1
+
+        logger.info(f"项目 {project_id} 共获取到 {len(all_commits)} 个提交")
 
         # 为每个commit添加project_id信息
         for commit in all_commits:
@@ -89,49 +95,66 @@ class GitLabCrawler:
         return all_commits
 
     def get_commits_for_all_projects(self) -> List[dict]:
-        all_commits = []
-        for project_id in self.project_ids:
-            commits = self.get_commits(project_id)
-            all_commits.extend(commits)
+        """获取所有项目的commits"""
+        logger.info(f"开始获取所有项目的提交记录，共 {len(self.project_ids)} 个项目")
+        all_commits = http_client.concurrent_map(
+            self.get_commits,
+            self.project_ids
+        )
+        logger.info(f"所有项目提交获取完成，共获取到 {len(all_commits)} 个提交")
         return all_commits
 
     def get_commit_diff(self, project_id: str, commit_sha: str) -> List[dict]:
         """获取commit的详细diff"""
         url = f"{self.base_url}/api/v4/projects/{project_id}/repository/commits/{commit_sha}/diff"
-        response = requests.get(url, headers=self.headers)
-        response.raise_for_status()
+        logger.debug(f"获取提交 {commit_sha} 的差异信息")
+        response = http_client.get(url, headers=self.headers)
         return response.json()
 
     def parse_commit(self, project_id: str, commit: dict) -> List[CodeSnippet]:
         """解析commit生成代码片段"""
-        # 从title和message中提取bug_id
-        bug_id = self._extract_bug_id(
-            commit["title"] + " " + commit.get("message", ""))
+        bug_id = self._extract_bug_id(commit["title"] + " " + commit.get("message", ""))
         if not bug_id:
+            logger.debug(f"提交 {commit['id']} 未找到关联的bug ID")
             return []
 
+        logger.debug(f"解析提交 {commit['id']}，关联bug ID: {bug_id}")
         diffs = self.get_commit_diff(project_id, commit["id"])
-        snippets = []
+        if not diffs:
+            logger.debug(f"提交 {commit['id']} 未包含代码差异")
+            return []
 
-        for diff in diffs:
-            # 使用new_path和old_path来判断文件是否为代码文件
-            file_path = diff.get("new_path") or diff.get("old_path")
-            if not file_path:
-                continue
+        logger.debug(f"开始并发处理提交 {commit['id']} 的 {len(diffs)} 个文件差异")
+        snippets = http_client.concurrent_map(
+            lambda diff: self._process_diff(diff, bug_id, commit["id"], project_id),
+            diffs
+        )
+        valid_snippets = [s for s in snippets if s is not None]
+        logger.debug(f"提交 {commit['id']} 处理完成，生成 {len(valid_snippets)} 个有效代码片段")
+        return valid_snippets
 
-            file_ext = file_path.split('.')[-1].lower()
-            if file_ext not in self.CODE_EXTENSIONS:
-                continue
+    def _process_diff(self, diff: Dict[str, Any], bug_id: str, commit_sha: str, project_id: str) -> Optional[CodeSnippet]:
+        """处理单个diff"""
+        file_path = diff.get("new_path") or diff.get("old_path")
+        if not file_path:
+            logger.warning(f"提交 {commit_sha} 的差异中发现无效的文件路径")
+            return None
 
-            diff_text = diff.get("diff", "")
+        file_ext = file_path.split('.')[-1].lower()
+        if file_ext not in self.CODE_EXTENSIONS:
+            logger.debug(f"跳过非代码文件: {file_path}")
+            return None
 
-            snippets.append(CodeSnippet(
-                bug_id=bug_id,
-                file_path=file_path,
-                commit_sha=commit["id"],
-                programming_language=file_ext,
-                 code_diff=diff_text,
-                project_id=project_id,
-            ))
+        diff_text = diff.get("diff", "")
+        if not diff_text:
+            logger.debug(f"文件 {file_path} 没有实际的代码差异")
+            return None
 
-        return snippets
+        return CodeSnippet(
+            bug_id=bug_id,
+            file_path=file_path,
+            commit_sha=commit_sha,
+            programming_language=file_ext,
+            code_diff=diff_text,
+            project_id=project_id,
+        )
