@@ -8,7 +8,7 @@ logger = logging.getLogger(__name__)
 
 def main():
     # 初始化组件
-    vector_store = VectorStore(data_dir="data/annoy")  # 修复：添加 data_dir 参数
+    vector_store = VectorStore(data_dir="data/annoy")
     db = BugDatabase()
     vectorizer = HybridVectorizer()
     

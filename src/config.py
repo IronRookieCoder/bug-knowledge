@@ -82,7 +82,8 @@ class Config:
         self._config['VECTOR_STORE'] = {
             "data_dir": os.getenv('VECTOR_STORE_DIR', 'data/annoy'),
             "vector_dim": int(os.getenv('VECTOR_DIM', '384')),
-            "index_type": os.getenv('INDEX_TYPE', 'angular')
+            "index_type": os.getenv('INDEX_TYPE', 'angular'),
+            "n_trees": int(os.getenv('N_TREES', '10'))
         }
 
     def _load_web_config(self) -> None:
