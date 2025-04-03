@@ -24,10 +24,6 @@ class BaseVectorizer(ABC):
             if not os.path.exists(model_path):
                 raise RuntimeError(f"模型目录不存在: {os.path.abspath(model_path)}")
             
-            modules_path = os.path.join(model_path, "modules.json")
-            if not os.path.exists(modules_path):
-                raise RuntimeError(f"模型文件不完整，modules.json 不存在: {os.path.abspath(modules_path)}")
-            
             logger.info(f"正在加载本地模型: {os.path.abspath(model_path)}")
             
             try:

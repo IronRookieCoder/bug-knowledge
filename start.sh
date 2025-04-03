@@ -1,15 +1,15 @@
 #!/bin/bash
 
 # 检查是否安装了Python
-if ! command -v python3 &> /dev/null; then
-    echo "错误: 未找到 Python3，请先安装 Python3"
+if ! command -v python &> /dev/null; then
+    echo "错误: 未找到 python，请先安装 python"
     exit 1
 fi
 
 # 检查虚拟环境
 if [ ! -d "venv" ]; then
     echo "创建虚拟环境..."
-    python3 -m venv venv
+    python -m venv venv
 fi
 
 # 激活虚拟环境

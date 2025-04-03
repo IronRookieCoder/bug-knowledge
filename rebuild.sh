@@ -4,13 +4,13 @@
 set -e
 
 # 检查Python版本
-if ! command -v python3 &> /dev/null; then
-    echo "错误: 未找到 Python3，请先安装 Python3"
+if ! command -v python &> /dev/null; then
+    echo "错误: 未找到 python，请先安装 python"
     exit 1
 fi
 
 # 检查Python版本号
-python_version=$(python3 -c 'import sys; print(".".join(map(str, sys.version_info[:2])))')
+python_version=$(python -c 'import sys; print(".".join(map(str, sys.version_info[:2])))')
 if (( $(echo "$python_version < 3.8" | bc -l) )); then
     echo "错误: 需要 Python 3.8 或更高版本"
     echo "当前版本: $python_version"
@@ -27,7 +27,7 @@ fi
 
 # 创建新环境
 echo "创建新虚拟环境..."
-python3 -m venv venv || {
+python -m venv venv || {
     echo "创建虚拟环境失败"
     exit 1
 }
