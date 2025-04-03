@@ -9,7 +9,7 @@ sys.path.insert(0, project_root)
 
 from src.ui.web import start_web_app
 from src.retrieval.searcher import BugSearcher
-from src.config import AppConfig
+from src.config import config
 from mock.generate_mock_data import save_mock_data
 from mock.load_mock_data import load_mock_data
 from src.storage.vector_store import VectorStore
@@ -18,25 +18,13 @@ console = Console()
 
 def main():
     """主函数"""
-    # 初始化配置
-    config = AppConfig(
-        vector_store={
-            "data_dir": "data/annoy",
-            "vector_dim": 768,
-            "index_type": "annoy"
-        },
-        web={
-            "templates_dir": "src/ui/templates",
-            "static_dir": "src/ui/static"
-        },
-        searcher={
-            "max_results": 10,
-            "similarity_threshold": 0.7
-        }
-    )
-    
     # 初始化搜索器
-    vector_store = VectorStore(data_dir=config.vector_store["data_dir"])
+    vector_store = VectorStore(
+        data_dir=config.get('VECTOR_STORE')['data_dir'],
+        vector_dim=config.get('VECTOR_STORE')['vector_dim'],
+        index_type=config.get('VECTOR_STORE')['index_type'],
+        n_trees=config.get('VECTOR_STORE')['n_trees']
+    )
     searcher = BugSearcher(vector_store=vector_store)
     
     # 生成并加载测试数据
@@ -50,8 +38,8 @@ def main():
         console.print("[red]错误：加载测试数据失败[/red]")
         return
     
-    # 启动Web应用
-    start_web_app(searcher=searcher, config=config)
+    # 启动Web应用，移除 config 参数
+    start_web_app(searcher=searcher)
 
 if __name__ == "__main__":
     main()

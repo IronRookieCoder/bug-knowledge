@@ -5,7 +5,7 @@ class BugReport(BaseModel):
     id: Optional[int] = Field(None, description="数据库主键")
     bug_id: str = Field(..., description="缺陷的唯一标识符")
     summary: str = Field(..., description="缺陷的简要描述")
-    description: str = Field(..., description="缺陷的详细描述")
+    description: Optional[str] = Field(None, description="缺陷的详细描述")
     file_paths: List[str] = Field(..., description="受影响的文件路径列表")
     code_diffs: List[str] = Field(..., description="代码差异列表")
     aggregated_added_code: str = Field(..., description="所有新增代码的聚合")

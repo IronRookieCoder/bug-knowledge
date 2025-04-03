@@ -1,11 +1,9 @@
 import re
-from src.utils.log import logging
+from src.utils.log import logger
 from dataclasses import dataclass
 from typing import List, Optional, Dict
 from src.config import config
 from src.utils.http_client import http_client
-
-logger = logging.getLogger(__name__)
 
 @dataclass
 class IssueDetails:

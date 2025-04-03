@@ -1,22 +1,25 @@
-import time
-import traceback
-import shutil
-from typing import List, Dict, Optional, Tuple, Any
+import json
+import os
 import gc
+import traceback
 from pathlib import Path
-from functools import lru_cache
+import shutil
+from datetime import datetime
+from typing import List, Dict, Any, Optional, Tuple
 from annoy import AnnoyIndex
+import numpy as np
+import time
+from functools import lru_cache
+from src.utils.log import logger
 from src.storage.database import BugDatabase
-from src.utils.log import logging
-
-logger = logging.getLogger(__name__)
 
 class VectorStore:
-    def __init__(self, data_dir: str = "data/annoy", vector_dim: int = 384, index_type: str = "angular", n_trees: int = 10):
+    def __init__(self, data_dir: str = "data/annoy", vector_dim: int = 384, index_type: str = "angular", n_trees: int = 10, similarity_threshold: float = 1.0):
         self.data_dir = Path(data_dir)
         self.vector_dim = vector_dim
         self.index_type = index_type
         self.n_trees = n_trees
+        self.similarity_threshold = similarity_threshold  # 相似度阈值
 
         # 创建数据目录
         self.data_dir.mkdir(parents=True, exist_ok=True)
@@ -229,7 +232,7 @@ class VectorStore:
         start_time = time.time()
 
         try:
-            # 从bug_report中获取bug_id
+            # 从bug_report中获取bug_id和其他数据
             bug_data = bug_report if isinstance(bug_report, dict) else vars(bug_report)
             bug_id = bug_data.get('bug_id')
             
@@ -239,9 +242,17 @@ class VectorStore:
                 
             logger.info(f"使用提供的 bug_id: {bug_id}")
 
-            # 检查bug_id是否存在
-            if not self.db.bug_id_exists(bug_id):
-                logger.error(f"bug_id {bug_id} 不存在，无法添加向量")
+            # 先添加或更新
+            exists = self.db.bug_id_exists(bug_id)
+            if exists:
+                logger.info(f"正在更新已存在的bug报告: {bug_id}")
+                success = self.db.update_bug_report(bug_id, bug_data)
+            else:
+                logger.info(f"正在添加新的bug报告: {bug_id}")
+                success = self.db.add_bug_report(bug_id, bug_data)
+
+            if not success:
+                logger.error("保存bug报告到数据库失败")
                 return False
 
             # 获取数据库id
@@ -335,16 +346,69 @@ class VectorStore:
             logger.error(f"错误堆栈: {traceback.format_exc()}")
             return False
 
-    def search(self, query_vectors: Dict[str, Any], n_results: int = 10, weights: Optional[Dict[str, float]] = None) -> List[Dict[str, Any]]:
-        """搜索相似的 bug 报告"""
+    def _keyword_search(self, query_text: str, n_results: int = 10) -> List[Dict[str, Any]]:
+        """使用关键词匹配进行搜索
+        
+        Args:
+            query_text: 查询文本
+            n_results: 返回结果数量
+            
+        Returns:
+            List[Dict[str, Any]]: 匹配的bug报告列表
+        """
+        try:
+            # 直接使用数据库的关键词搜索功能
+            return self.db.keyword_search(query_text, n_results)
+            
+        except Exception as e:
+            logger.error(f"关键词搜索失败: {str(e)}")
+            logger.error(f"错误堆栈: {traceback.format_exc()}")
+            return []
+
+    def search(self, query_vectors: Dict[str, Any], query_text: str = "", n_results: int = 10, weights: Optional[Dict[str, float]] = None) -> List[Dict[str, Any]]:
+        """搜索相似的 bug 报告，当向量检索结果相似度低于阈值时使用关键词检索兜底"""
         start_time = time.time()
+        try:
+            # 执行向量检索
+            vector_results = self._vector_search(query_vectors, n_results, weights)
+            
+            # 检查向量检索结果的相似度
+            low_similarity = all(
+                result.get('distance', float('inf')) > self.similarity_threshold 
+                for result in vector_results
+            )
+
+            similarity_distances = [result.get('distance', float('inf')) for result in vector_results]
+            logger.info(f"向量检索结果的相似度: {similarity_distances}")
+            logger.info(f"相似度阈值: {self.similarity_threshold}")
+            
+            # 如果有查询文本且向量检索结果相似度都很低，使用关键词检索
+            if low_similarity and query_text:
+                logger.warning("向量检索结果相似度较低，启用关键词检索兜底")
+                keyword_results = self._keyword_search(query_text, n_results)
+                
+                if keyword_results:
+                    logger.info(f"关键词检索找到 {len(keyword_results)} 个结果")
+                    return keyword_results
+            
+            return vector_results
+
+        except Exception as e:
+            logger.error(f"搜索失败: {str(e)}")
+            logger.error(f"错误堆栈: {traceback.format_exc()}")
+            end_time = time.time()
+            logger.error(f"搜索失败，耗时: {end_time - start_time:.3f}秒")
+            return []
+
+    def _vector_search(self, query_vectors: Dict[str, Any], n_results: int = 10, weights: Optional[Dict[str, float]] = None) -> List[Dict[str, Any]]:
+        """执行向量检索"""
         try:
             # 设置默认权重
             if weights is None:
                 weights = {
                     "summary": 0.2,           # 摘要权重
-                    "code": 0.25,              # 代码权重
-                    "test_info": 0.15,         # 测试信息权重
+                    "code": 0.25,             # 代码权重
+                    "test_info": 0.15,        # 测试信息权重
                     "log_info": 0.3,          # 日志权重
                     "environment": 0.1        # 环境权重
                 }
@@ -393,17 +457,11 @@ class VectorStore:
                     bug_report["distance"] = distance
                     final_results.append(bug_report)
 
-            # 记录性能指标
-            end_time = time.time()
-            logger.info(f"搜索完成，耗时: {end_time - start_time:.3f}秒，结果数: {len(final_results)}")
-            
             return final_results
 
         except Exception as e:
-            logger.error(f"搜索失败: {str(e)}")
+            logger.error(f"向量检索失败: {str(e)}")
             logger.error(f"错误堆栈: {traceback.format_exc()}")
-            end_time = time.time()
-            logger.error(f"搜索失败，耗时: {end_time - start_time:.3f}秒")
             return []
 
     def _load_indices_for_read(self):

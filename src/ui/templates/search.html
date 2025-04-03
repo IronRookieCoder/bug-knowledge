@@ -195,15 +195,19 @@
         const resultsContainer = document.getElementById("resultsContainer");
 
         data.results.forEach((result, index) => {
-          // 计算相似度百分比
-          const similarity = (1 - result.distance) * 100;
-
-          // 确定相似度徽章颜色
-          let badgeClass = "bg-danger";
-          if (similarity >= 70) {
-            badgeClass = "bg-success";
-          } else if (similarity >= 40) {
-            badgeClass = "bg-warning text-dark";
+          // 计算相似度百分比和徽章，仅当distance有值时才显示
+          let similarityHtml = "";
+          if (result.distance !== undefined && result.distance !== "") {
+            const similarity = (1 - result.distance) * 100;
+            let badgeClass = "bg-danger";
+            if (similarity >= 70) {
+              badgeClass = "bg-success";
+            } else if (similarity >= 40) {
+              badgeClass = "bg-warning text-dark";
+            }
+            similarityHtml = `<span class="badge ${badgeClass}">相似度: ${similarity.toFixed(
+              1
+            )}%</span>`;
           }
 
           const resultHtml = `
@@ -212,9 +216,7 @@
                     }">
                         <div class="d-flex justify-content-between align-items-start mb-3">
                             <h5 class="mb-0">#${result.bug_id}</h5>
-                            <span class="badge ${badgeClass}">
-                                相似度: ${similarity.toFixed(1)}%
-                            </span>
+                            ${similarityHtml}
                         </div>
                         
                         <div class="mb-3">

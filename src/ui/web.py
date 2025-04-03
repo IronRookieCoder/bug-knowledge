@@ -5,7 +5,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 import uvicorn
 from typing import List, Optional, Dict, Any
 from datetime import datetime
-from src.utils.log import logging
+from src.utils.log import logger
 import socket
 import traceback
 import os
@@ -16,9 +16,7 @@ import time
 
 from src.models.bug_models import BugReport
 from src.retrieval.searcher import BugSearcher
-from src.config import AppConfig
-
-logger = logging.getLogger(__name__)
+from src.config import config
 
 def find_available_port(start_port: int = 8000, max_port: int = 8999) -> int:
     """查找可用端口"""
@@ -31,13 +29,13 @@ def find_available_port(start_port: int = 8000, max_port: int = 8999) -> int:
             continue
     raise RuntimeError(f"在端口范围 {start_port}-{max_port} 内没有找到可用端口")
 
-def create_web_app(searcher: BugSearcher, config: AppConfig) -> FastAPI:
+def create_web_app(searcher: BugSearcher) -> FastAPI:  # Removed config parameter
     """创建Web应用实例"""
     app = FastAPI(title="BUG知识库系统")
     
     # 配置模板和静态文件
-    templates = Jinja2Templates(directory=config.web["templates_dir"])
-    app.mount("/static", StaticFiles(directory=config.web["static_dir"]), name="static")
+    templates = Jinja2Templates(directory=config.get("WEB")["templates_dir"])
+    app.mount("/static", StaticFiles(directory=config.get("WEB")["static_dir"]), name="static")
     
     @app.get("/", response_class=HTMLResponse)
     async def home(request: Request):
@@ -168,11 +166,14 @@ def create_web_app(searcher: BugSearcher, config: AppConfig) -> FastAPI:
             # 记录搜索结果
             if results:
                 logger.info(f"搜索完成, 获得 {len(results)} 个结果")
-                result_ids = [r["bug_id"] for r in results[:min(10, len(results))]]
+                result_ids = [r.get("bug_id", "unknown") for r in results[:min(10, len(results))]]
                 logger.info(f"搜索结果ID: {result_ids}")
                 # 记录每个结果的相似度得分和详细信息
                 for i, result in enumerate(results[:min(5, len(results))], 1):
-                    logger.info(f"结果 #{i}: ID={result['bug_id']}, 距离={result['distance']}, 摘要={result['summary'][:50]}...")
+                    distance = result.get('distance', '')  # 使用get方法，如果distance不存在则返回'N/A'
+                    bug_id = result.get('bug_id', 'unknown')
+                    summary = result.get('summary', '')[:50]
+                    logger.info(f"结果 #{i}: ID={bug_id}, 距离={distance}, 摘要={summary}...")
             else:
                 logger.info("未找到匹配的结果")
             
@@ -191,8 +192,8 @@ def create_web_app(searcher: BugSearcher, config: AppConfig) -> FastAPI:
     
     return app
 
-def start_web_app(searcher: BugSearcher, config: AppConfig, host: str = "127.0.0.1", 
-                port: int = 8000, reload: bool = False, reload_dirs: List[str] = None,
+def start_web_app(searcher: BugSearcher, host: str = None, port: int = None, 
+                reload: bool = False, reload_dirs: List[str] = None,
                 reload_includes: List[str] = None, reload_excludes: List[str] = None):
     """启动Web应用"""
     try:
@@ -200,12 +201,17 @@ def start_web_app(searcher: BugSearcher, config: AppConfig, host: str = "127.0.0
         vector_store = searcher.vector_store
         
         # 创建FastAPI应用
-        app = create_web_app(searcher, config)
+        app = create_web_app(searcher)
+        
+        # 使用配置中的host和port，如果没有提供参数的话
+        web_config = config.get("WEB", {})
+        final_host = host or web_config.get("host", "127.0.0.1")
+        final_port = port or web_config.get("port", 8010)
         
         # 配置热重载选项
         uvicorn_config = {
-            "host": host,
-            "port": port,
+            "host": final_host,
+            "port": final_port,
         }
         
         if reload:
@@ -225,8 +231,7 @@ def start_web_app(searcher: BugSearcher, config: AppConfig, host: str = "127.0.0
         logger.error(f"错误堆栈: {traceback.format_exc()}")
         raise RuntimeError(f"启动Web应用失败: {str(e)}")
 
-# 为热重载创建一个工厂函数
-def create_app(searcher: BugSearcher, config: AppConfig) -> FastAPI:
+def create_app(searcher: BugSearcher) -> FastAPI:  # Removed config parameter
     """创建FastAPI应用的工厂函数"""
     try:
         # 从环境变量获取临时目录路径
@@ -236,7 +241,7 @@ def create_app(searcher: BugSearcher, config: AppConfig) -> FastAPI:
         
         # 加载配置
         with open(os.path.join(temp_dir, "config.pkl"), 'rb') as f:
-            config = pickle.load(f)
+            loaded_config = pickle.load(f)
         
         # 创建新的 BugSearcher 实例
         searcher = BugSearcher()
@@ -284,7 +289,7 @@ def create_app(searcher: BugSearcher, config: AppConfig) -> FastAPI:
                             index.save(index_path)
                             logger.info(f"创建并保存新的空索引: {index_name}")
         
-        return create_web_app(searcher, config)
+        return create_web_app(searcher)
     except Exception as e:
         logger.error(f"创建应用失败: {str(e)}")
         logger.error(f"错误堆栈: {traceback.format_exc()}")
@@ -299,12 +304,9 @@ def main():
         
         start_web_app(
             bug_searcher,
-            AppConfig(),
-            host="0.0.0.0",
-            port=8000,
             reload=True  # 启用热更新
         )
     except Exception as e:
         logger.error(f"Web 服务器启动失败: {str(e)}")
         logger.error(f"错误堆栈: {traceback.format_exc()}")
-        raise 
+        raise

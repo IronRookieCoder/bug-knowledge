@@ -3,9 +3,7 @@ import re
 from typing import Dict, List, Any, Tuple
 from dataclasses import dataclass
 from collections import defaultdict
-from src.utils.log import logging
-
-logger = logging.getLogger(__name__)
+from src.utils.log import logger
 
 @dataclass
 class CodeFeatures:

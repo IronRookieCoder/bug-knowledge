@@ -1,12 +1,11 @@
 import requests
-import time
 import concurrent.futures
-from src.utils.log import logging
+import time
+import json
+from src.utils.log import logger
 from functools import wraps
 from typing import TypeVar, Callable, List, Optional, Dict, Any, Union
 from dataclasses import dataclass
-
-logger = logging.getLogger(__name__)
 
 T = TypeVar('T')
 
@@ -67,14 +66,10 @@ class HttpClient:
         """
         self.retry_config = retry_config or RetryConfig()
         self.concurrency_config = concurrency_config or ConcurrencyConfig()
+        # Apply retry decorator to request method
+        self.request = with_retry(self.retry_config)(self._request)
 
-    @property
-    def request_decorator(self):
-        """获取请求装饰器"""
-        return with_retry(self.retry_config)
-
-    @request_decorator
-    def request(self, 
+    def _request(self, 
                method: str, 
                url: str, 
                headers: Optional[Dict[str, str]] = None, 

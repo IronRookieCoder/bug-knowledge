@@ -3,9 +3,7 @@ from src.crawler.gitlab_crawler import GitLabCrawler, CodeSnippet
 from src.crawler.td_crawler import TDCrawler, IssueDetails
 from src.crawler.data_integrator import DataIntegrator, BugReport
 from src.storage.database import BugDatabase
-from src.utils.log import logging
-
-logger = logging.getLogger(__name__)
+from src.utils.log import logger
 
 def get_gitlab_snippets(gl_configs):
     """从GitLab获取代码片段"""
