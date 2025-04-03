@@ -277,6 +277,7 @@ def generate_mock_data(count: int = 10) -> List[Dict]:
         bug_report = {
             "bug_id": f"BUG-{uuid.uuid4().hex[:8]}",
             "summary": BUG_TITLES[title_idx],
+            "description": f"在{ENVIRONMENT_INFO[env_idx]['runtime_env']}环境下，{BUG_TITLES[title_idx]}", 
             "file_paths": [file_name],
             "code_diffs": [diff_content],  # 使用标准diff格式
             "aggregated_added_code": CODE_SNIPPETS[code_idx],
@@ -324,6 +325,7 @@ def save_mock_data(count: int = 10):
             bug_report = BugReport(
                 bug_id=data["bug_id"],
                 summary=data["summary"],
+                description=data["description"],
                 file_paths=data["file_paths"],
                 code_diffs=data["code_diffs"],
                 aggregated_added_code=data["aggregated_added_code"],

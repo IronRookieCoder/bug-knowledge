@@ -4,10 +4,7 @@ from src.storage.vector_store import VectorStore
 from src.vectorization.vectorizers import HybridVectorizer
 import os
 import traceback
-from src.utils.log import logging
-
-# 设置日志
-logger = logging.getLogger(__name__)
+from src.utils.log import logger
 
 # 禁用在线模型下载
 os.environ['HF_HUB_OFFLINE'] = '1'
@@ -139,10 +136,17 @@ class BugSearcher:
             
             # 生成查询向量
             query_vectors = {}
+            # 组合所有查询文本用于关键词搜索
+            query_texts = []
+            
             if summary:
                 query_vectors["summary_vector"] = self.vectorizer.summary_vectorizer.vectorize(summary)
+                query_texts.append(summary)
+                
             if code:
                 query_vectors["code_vector"] = self.vectorizer.code_vectorizer.vectorize(code)
+                query_texts.append(code)
+                
             if test_steps or expected_result or actual_result:
                 # 组合所有测试相关信息
                 test_info = {
@@ -151,13 +155,26 @@ class BugSearcher:
                     "actual_result": actual_result or ""
                 }
                 query_vectors["test_info_vector"] = self.vectorizer.test_vectorizer.vectorize(test_info)
+                query_texts.extend([v for v in test_info.values() if v])
+                
             if log_info:
                 query_vectors["log_info_vector"] = self.vectorizer.log_vectorizer.vectorize(log_info)
+                query_texts.append(log_info)
+                
             if environment:
                 query_vectors["environment_vector"] = self.vectorizer.environment_vectorizer.vectorize(environment)
+                query_texts.append(environment)
+
+            # 合并所有查询文本
+            query_text = " ".join(query_texts)
             
             # 执行向量检索
-            results = self.vector_store.search(query_vectors, n_results=n_results, weights=weights)
+            results = self.vector_store.search(
+                query_vectors=query_vectors, 
+                query_text=query_text,
+                n_results=n_results, 
+                weights=weights
+            )
             
             return results
             

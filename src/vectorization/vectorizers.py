@@ -1,13 +1,12 @@
-from abc import ABC, abstractmethod
-from typing import Union, List, Dict
+import numpy as np
+from typing import Optional, Any, Union, List, Dict
 from sentence_transformers import SentenceTransformer
 from sentence_transformers.models import Transformer, Pooling
+from abc import ABC, abstractmethod
 from src.models.bug_models import BugReport
 import os
-from src.utils.log import logging
 import traceback
-
-logger = logging.getLogger(__name__)
+from src.utils.log import logger
 
 # 禁用在线模型下载
 os.environ['HF_HUB_OFFLINE'] = '1'
@@ -193,4 +192,4 @@ class HybridVectorizer:
         except Exception as e:
             logger.error(f"Bug报告向量化失败: {str(e)}")
             logger.error(f"错误堆栈: {traceback.format_exc()}")
-            raise RuntimeError(f"Bug报告向量化失败: {str(e)}") 
+            raise RuntimeError(f"Bug报告向量化失败: {str(e)}")

@@ -1,10 +1,8 @@
+from typing import List, Dict, Any
 from src.storage.vector_store import VectorStore
 from src.storage.database import BugDatabase
 from src.vectorization.vectorizers import HybridVectorizer
-from src.utils.log import logging
-
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+from src.utils.log import logger
 
 def main():
     # 初始化组件

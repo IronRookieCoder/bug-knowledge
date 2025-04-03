@@ -2,8 +2,7 @@ import argparse
 import sys
 from pathlib import Path
 import time
-from src.utils.log import logging
-logger = logging.getLogger(__name__)
+from src.utils.log import logger
 
 # 添加项目根目录到 Python 路径
 project_root = str(Path(__file__).parent.parent)
@@ -11,7 +10,7 @@ sys.path.insert(0, project_root)
 
 from src.ui.web import start_web_app
 from src.retrieval.searcher import BugSearcher
-from src.config import config  # 使用全局配置实例
+from src.config import config
 from src.crawler.__main__ import main as crawler_main
 from src.storage.__main__ import main as storage_main
 
@@ -67,7 +66,6 @@ def main():
                 web_config = config._config['WEB']
                 start_web_app(
                     searcher=searcher,
-                    config=config,
                     host=web_config['host'],
                     port=web_config['port'],
                 )
@@ -86,7 +84,6 @@ def main():
             web_config = config._config['WEB']
             start_web_app(
                 searcher=searcher,
-                config=config,
                 host=web_config['host'],
                 port=web_config['port'],
             )

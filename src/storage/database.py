@@ -1,6 +1,7 @@
 import sqlite3
 import json
 from pathlib import Path
+import traceback
 from typing import Dict, Any, Optional, List
 from datetime import datetime
 from contextlib import contextmanager
@@ -34,6 +35,7 @@ class BugDatabase:
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     bug_id TEXT UNIQUE,
                     summary TEXT,
+                    description TEXT,
                     file_paths TEXT,
                     code_diffs TEXT,
                     aggregated_added_code TEXT,
@@ -271,4 +273,89 @@ class BugDatabase:
                 
         except Exception as e:
             logger.error(f"删除bug报告失败: {str(e)}")
-            return False 
+            return False
+
+    def keyword_search(self, query_text: str, n_results: int = 10) -> List[Dict[str, Any]]:
+        """使用关键词在数据库中搜索bug报告
+        
+        Args:
+            query_text: 查询文本
+            n_results: 返回结果数量
+            
+        Returns:
+            List[Dict[str, Any]]: 匹配的bug报告列表
+        """
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                
+                # 生成查询词列表
+                search_terms = [word.strip().lower() for word in query_text.split() if word.strip()]
+                if not search_terms:
+                    return []
+                
+                # 构建SQL查询条件
+                conditions = []
+                params = []
+                search_fields = ['summary', 'code_diffs', 'test_steps', 'log_info', 'environment']
+                
+                for term in search_terms:
+                    field_conditions = []
+                    for field in search_fields:
+                        field_conditions.append(f"LOWER({field}) LIKE ?")
+                        params.append(f"%{term}%")
+                    conditions.append("(" + " OR ".join(field_conditions) + ")")
+                
+                # 组合所有条件
+                where_clause = " AND ".join(conditions)
+                
+                # 计算每条记录匹配的关键词数量作为相关度分数
+                score_conditions = []
+                for field in search_fields:
+                    for term in search_terms:
+                        score_conditions.append(
+                            f"CASE WHEN LOWER({field}) LIKE ? THEN 1 ELSE 0 END"
+                        )
+                        params.append(f"%{term}%")
+                
+                sql = f"""
+                    SELECT *, ({' + '.join(score_conditions)}) as score
+                    FROM bug_reports 
+                    WHERE {where_clause}
+                    ORDER BY score DESC
+                    LIMIT ?
+                """
+                params.extend([n_results])
+                
+                cursor.execute(sql, params)
+                rows = cursor.fetchall()
+                
+                if not rows:
+                    return []
+                
+                # 获取列名
+                columns = [description[0] for description in cursor.description]
+                results = []
+                
+                for row in rows:
+                    result = dict(zip(columns, row))
+                    
+                    # 处理JSON字段
+                    json_fields = ['file_paths', 'code_diffs', 'related_issues', 'handlers']
+                    for field in json_fields:
+                        if result.get(field):
+                            try:
+                                result[field] = json.loads(result[field])
+                            except json.JSONDecodeError:
+                                logger.warning(f"无法解析JSON字段 {field} 的值")
+                    
+                    # 移除score字段，因为这只是用于排序
+                    result.pop('score', None)
+                    results.append(result)
+                
+                return results
+                
+        except Exception as e:
+            logger.error(f"关键词搜索失败: {str(e)}")
+            logger.error(f"错误堆栈: {traceback.format_exc()}")
+            return []

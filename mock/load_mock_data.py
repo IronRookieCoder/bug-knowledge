@@ -38,6 +38,7 @@ def load_mock_data(searcher: BugSearcher = None):
                     bug_report_obj = BugReport(
                         bug_id=bug_report["bug_id"],
                         summary=bug_report["summary"],
+                        description=bug_report["description"],
                         file_paths=bug_report["file_paths"],
                         code_diffs=bug_report["code_diffs"],
                         aggregated_added_code=bug_report["aggregated_added_code"],

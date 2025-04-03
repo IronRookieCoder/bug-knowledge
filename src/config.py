@@ -47,6 +47,7 @@ class Config:
         self._load_crawler_config()
         self._load_vector_store_config()
         self._load_web_config()
+        self._load_log_config()
         
     def _load_app_config(self) -> None:
         """加载应用配置"""
@@ -94,6 +95,20 @@ class Config:
             "host": os.getenv('WEB_HOST', '127.0.0.1'),
             "port": int(os.getenv('WEB_PORT', '8010'))
         }
+
+    def _load_log_config(self) -> None:
+        """加载日志配置"""
+        self._config['LOG'] = {
+            "level": os.getenv('LOG_LEVEL', 'INFO'),
+            "file": os.getenv('LOG_FILE', 'logs/bug_knowledge.log'),
+            "max_size": int(os.getenv('LOG_MAX_SIZE', 10 * 1024 * 1024)),  # 默认10MB
+            "backup_count": int(os.getenv('LOG_BACKUP_COUNT', 5)),
+            "format": os.getenv('LOG_FORMAT', '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        }
+        
+        # 确保日志目录存在
+        log_dir = Path(self._config['LOG']['file']).parent
+        log_dir.mkdir(parents=True, exist_ok=True)
 
     def _validate_config(self) -> None:
         """验证配置有效性"""
