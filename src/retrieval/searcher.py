@@ -1,4 +1,5 @@
 from typing import List, Dict, Optional
+from src.config import config
 from src.models.bug_models import BugReport
 from src.storage.vector_store import VectorStore
 from src.vectorization.vectorizers import HybridVectorizer
@@ -15,7 +16,13 @@ os.environ["TRANSFORMERS_OFFLINE"] = "1"
 
 class BugSearcher:
     def __init__(self, vector_store: Optional[VectorStore] = None):
-        self.vector_store = vector_store or VectorStore()
+        self.vector_store = vector_store or VectorStore(
+            data_dir=config.get("VECTOR_STORE")["data_dir"],
+            vector_dim=config.get("VECTOR_STORE")["vector_dim"],
+            index_type=config.get("VECTOR_STORE")["index_type"],
+            n_trees=config.get("VECTOR_STORE")["n_trees"],
+            similarity_threshold=config.get("VECTOR_STORE")["similarity_threshold"],
+        )
         self.vectorizer = HybridVectorizer()
 
         # 查询类型权重配置

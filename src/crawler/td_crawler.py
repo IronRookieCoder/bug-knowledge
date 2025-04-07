@@ -109,7 +109,7 @@ class TDCrawler:
                 summary=fields.get("summary", ""),
                 severity=fields.get("severity", {}).get("name", "P4"),
                 is_reappear=fields.get("is_reappear", {}).get("value", "1"),
-                description=self._build_structured_description(desc_content),
+                description=desc_content,
                 test_steps=self._parse_desc_section(desc_content, "测试步骤"),
                 expected_result=self._parse_desc_section(desc_content, "期望结果"),
                 actual_result=self._parse_desc_section(desc_content, "实际结果"),

@@ -1,4 +1,5 @@
 from typing import List, Dict, Any
+from src.config import config
 from src.storage.vector_store import VectorStore
 from src.storage.database import BugDatabase
 from src.vectorization.vectorizers import HybridVectorizer
@@ -9,7 +10,13 @@ logger = get_logger(__name__)
 
 def main():
     # 初始化组件
-    vector_store = VectorStore(data_dir="data/annoy")
+    vector_store = VectorStore(
+        data_dir=config.get("VECTOR_STORE")["data_dir"],
+        vector_dim=config.get("VECTOR_STORE")["vector_dim"],
+        index_type=config.get("VECTOR_STORE")["index_type"],
+        n_trees=config.get("VECTOR_STORE")["n_trees"],
+        similarity_threshold=config.get("VECTOR_STORE")["similarity_threshold"],
+    )
     db = BugDatabase()
     vectorizer = HybridVectorizer()
 

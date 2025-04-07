@@ -23,7 +23,8 @@ def main():
         data_dir=config.get('VECTOR_STORE')['data_dir'],
         vector_dim=config.get('VECTOR_STORE')['vector_dim'],
         index_type=config.get('VECTOR_STORE')['index_type'],
-        n_trees=config.get('VECTOR_STORE')['n_trees']
+        n_trees=config.get('VECTOR_STORE')['n_trees'],
+        similarity_threshold=config.get('VECTOR_STORE')['similarity_threshold']
     )
     searcher = BugSearcher(vector_store=vector_store)
     

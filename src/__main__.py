@@ -26,7 +26,8 @@ def main():
     parser.add_argument(
         "--mode",
         choices=["crawler", "storage", "web", "all"],
-        required=True,
+        required=False,
+        default="web",
         help="运行模式：crawler(爬取数据), storage(构建向量索引), web(启动Web服务), all(按顺序执行所有任务)",
     )
     parser.add_argument("--host", help="Web服务器主机地址")

@@ -38,17 +38,19 @@ show_help() {
     echo "  --hour         计划任务执行的小时 (0-23, 默认: 2)"
     echo "  --minute       计划任务执行的分钟 (0-59, 默认: 0)"
     echo "  --interval     任务执行的间隔时间（小时，默认: 24）"
+    echo "  --env          运行环境: development|production"
     echo "  --help         显示此帮助信息"
 }
 
 # 默认参数
-MODE=""
+MODE="web"
 HOST="127.0.0.1"
 PORT="8010"
 SCHEDULE=""
 HOUR="--hour 2"
 MINUTE="--minute 0"
 INTERVAL="--interval 24"
+ENV="production"
 
 # 解析命令行参数
 while [[ $# -gt 0 ]]; do
@@ -81,6 +83,10 @@ while [[ $# -gt 0 ]]; do
             INTERVAL="--interval $2"
             shift 2
             ;;
+        --env)
+            ENV="$2"
+            shift 2
+            ;;
         --help)
             show_help
             exit 0
@@ -93,12 +99,8 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# 检查必需参数
-if [ -z "$MODE" ]; then
-    echo "错误: 必须指定运行模式 (-m|--mode)"
-    show_help
-    exit 1
-fi
+# 设置环境变量
+export PYTHON_ENV=$ENV
 
 # 构建启动命令
 if [ -n "$SCHEDULE" ]; then
