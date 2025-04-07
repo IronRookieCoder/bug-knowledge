@@ -1,0 +1,38 @@
+version: '3.8'
+
+services:
+  web:
+    build: .
+    environment:
+      - MODE=web
+      - HOST=0.0.0.0
+      - PORT=8010
+      - PYTHON_ENV=production
+    ports:
+      - "8010:8010"
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    restart: unless-stopped
+
+  crawler:
+    build: .
+    environment:
+      - MODE=crawler
+      - SCHEDULE=true
+      - INTERVAL=24
+      - PYTHON_ENV=production
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    restart: unless-stopped
+
+  storage:
+    build: .
+    environment:
+      - MODE=storage
+      - PYTHON_ENV=production
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    restart: unless-stopped

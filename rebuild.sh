@@ -3,61 +3,39 @@
 # 错误处理
 set -e
 
-# 检查Python版本
-if ! command -v python &> /dev/null; then
-    echo "错误: 未找到 python，请先安装 python"
-    exit 1
+# 检查操作系统类型
+if [[ "$OSTYPE" == "msys" ]] || [[ "$OSTYPE" == "win32" ]]; then
+    # Windows环境下的conda路径处理
+    if [[ -z "${CONDA_PATH}" ]]; then
+        # 尝试常见的conda安装路径
+        if [ -d "/c/Users/$USER/miniconda3" ]; then
+            CONDA_PATH="/c/Users/$USER/miniconda3"
+        elif [ -d "/c/Users/$USER/Anaconda3" ]; then
+            CONDA_PATH="/c/Users/$USER/Anaconda3"
+        elif [ -d "/d/conda" ]; then
+            CONDA_PATH="/d/conda"
+        else
+            echo "错误: 未找到conda安装路径，请设置CONDA_PATH环境变量"
+            exit 1
+        fi
+    fi
+    source "${CONDA_PATH}/etc/profile.d/conda.sh"
 fi
 
-# 检查Python版本号
-python_version=$(python -c 'import sys; print(".".join(map(str, sys.version_info[:2])))')
-if (( $(echo "$python_version < 3.8" | bc -l) )); then
-    echo "错误: 需要 Python 3.8 或更高版本"
-    echo "当前版本: $python_version"
+# 检查conda是否安装
+if ! command -v conda &> /dev/null; then
+    echo "错误: 未找到 conda，请先安装 Miniconda 或 Anaconda"
     exit 1
 fi
 
 echo "开始重建环境..."
 
 # 删除旧环境
-if [ -d "venv" ]; then
-    echo "删除旧虚拟环境..."
-    rm -rf venv/
-fi
+echo "删除现有环境..."
+conda remove --name bug-knowledge --all -y 2>/dev/null || true
 
 # 创建新环境
-echo "创建新虚拟环境..."
-python -m venv venv || {
-    echo "创建虚拟环境失败"
-    exit 1
-}
-
-# 激活环境
-echo "激活虚拟环境..."
-if [[ "$OSTYPE" == "msys" ]] || [[ "$OSTYPE" == "win32" ]]; then
-    source venv/Scripts/activate || {
-        echo "激活虚拟环境失败"
-        exit 1
-    }
-else
-    source venv/bin/activate || {
-        echo "激活虚拟环境失败"
-        exit 1
-    }
-fi
-
-# 升级pip
-echo "升级pip..."
-python -m pip install --upgrade pip
-
-# 安装依赖
-echo "安装项目依赖..."
-pip install -r requirements.txt || {
-    echo "安装依赖失败"
-    exit 1
-}
-
-# 创建安装标记
-touch venv/installed
+echo "创建新环境..."
+conda env create -f environment.yml
 
 echo "环境重建完成！"
