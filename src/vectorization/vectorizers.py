@@ -6,7 +6,9 @@ from abc import ABC, abstractmethod
 from src.models.bug_models import BugReport
 import os
 import traceback
-from src.utils.log import logger
+from src.utils.log import get_logger
+
+logger = get_logger(__name__)
 
 # 禁用在线模型下载
 os.environ['HF_HUB_OFFLINE'] = '1'

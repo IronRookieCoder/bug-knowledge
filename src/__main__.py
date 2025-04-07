@@ -2,7 +2,9 @@ import argparse
 import sys
 from pathlib import Path
 import time
-from src.utils.log import logger
+from src.utils.log import get_logger
+
+logger = get_logger(__name__)
 
 # 添加项目根目录到 Python 路径
 project_root = str(Path(__file__).parent.parent)
@@ -18,56 +20,71 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
+
 def main():
     parser = argparse.ArgumentParser(description="Bug知识库系统")
-    parser.add_argument("--mode", choices=["crawler", "storage", "web", "all"], required=True,
-                      help="运行模式：crawler(爬取数据), storage(构建向量索引), web(启动Web服务), all(按顺序执行所有任务)")
+    parser.add_argument(
+        "--mode",
+        choices=["crawler", "storage", "web", "all"],
+        required=True,
+        help="运行模式：crawler(爬取数据), storage(构建向量索引), web(启动Web服务), all(按顺序执行所有任务)",
+    )
     parser.add_argument("--host", help="Web服务器主机地址")
     parser.add_argument("--port", type=int, help="Web服务器端口")
     parser.add_argument("--schedule", action="store_true", help="启用计划运行模式")
-    parser.add_argument("--hour", type=int, default=2, help="任务执行的小时 (0-23)，默认为2 (凌晨2点)")
-    parser.add_argument("--minute", type=int, default=0, help="任务执行的分钟 (0-59)，默认为0")
-    parser.add_argument("--interval", type=int, help="任务执行的间隔时间（小时），与 --hour/--minute 互斥")
-    
+    parser.add_argument(
+        "--hour", type=int, default=2, help="任务执行的小时 (0-23)，默认为2 (凌晨2点)"
+    )
+    parser.add_argument(
+        "--minute", type=int, default=0, help="任务执行的分钟 (0-59)，默认为0"
+    )
+    parser.add_argument(
+        "--interval",
+        type=int,
+        help="任务执行的间隔时间（小时），与 --hour/--minute 互斥",
+    )
+
     args = parser.parse_args()
 
     # 参数校验：确保用户不能同时指定 --hour/--minute 和 --interval
     if args.hour is not None and args.minute is not None and args.interval is not None:
-        raise ValueError("不能同时指定 --hour/--minute 和 --interval，请选择一种调度模式。")
+        raise ValueError(
+            "不能同时指定 --hour/--minute 和 --interval，请选择一种调度模式。"
+        )
 
     # 使用命令行参数覆盖配置文件中的值
     if args.host:
-        config._config['WEB']['host'] = args.host
+        config._config["WEB"]["host"] = args.host
     if args.port:
-        config._config['WEB']['port'] = args.port
-    
+        config._config["WEB"]["port"] = args.port
+
     def run_task():
         if args.mode == "all":
             logger.info("开始执行所有任务...")
-            
+
             # 1. 爬虫任务
             try:
                 logger.info("1. 开始爬取数据...")
                 crawler_main()
             except Exception as e:
                 logger.error(f"爬虫任务执行失败: {str(e)}")
-            
+
             # 2. 存储任务
             try:
                 logger.info("2. 开始构建向量索引...")
                 storage_main()
             except Exception as e:
                 logger.error(f"向量索引构建失败: {str(e)}")
-            
+
             # 3. Web服务
             try:
                 logger.info("3. 启动Web服务...")
                 searcher = BugSearcher()
-                web_config = config._config['WEB']
+                web_config = config._config["WEB"]
                 start_web_app(
                     searcher=searcher,
-                    host=web_config['host'],
-                    port=web_config['port'],
+                    host=web_config["host"],
+                    port=web_config["port"],
                 )
             except Exception as e:
                 logger.error(f"Web服务启动失败: {str(e)}")
@@ -81,11 +98,11 @@ def main():
         elif args.mode == "web":
             logger.info("启动Web服务...")
             searcher = BugSearcher()
-            web_config = config._config['WEB']
+            web_config = config._config["WEB"]
             start_web_app(
                 searcher=searcher,
-                host=web_config['host'],
-                port=web_config['port'],
+                host=web_config["host"],
+                port=web_config["port"],
             )
 
     if args.schedule:
@@ -94,11 +111,15 @@ def main():
 
         def scheduled_task():
             try:
-                logger.info(f"\n[{time.strftime('%Y-%m-%d %H:%M:%S')}] 开始执行计划任务...")
+                logger.info(
+                    f"\n[{time.strftime('%Y-%m-%d %H:%M:%S')}] 开始执行计划任务..."
+                )
                 run_task()
                 logger.info(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 计划任务执行完成")
             except Exception as e:
-                logger.error(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 计划任务执行失败: {str(e)}")
+                logger.error(
+                    f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 计划任务执行失败: {str(e)}"
+                )
 
         if args.interval is not None:
             interval_hours = args.interval
@@ -120,6 +141,7 @@ def main():
             logger.info("调度器已停止，程序退出。")
     else:
         run_task()  # 单次运行模式
+
 
 if __name__ == "__main__":
     main()

@@ -1,9 +1,12 @@
 import re
-from src.utils.log import logger
+from src.utils.log import get_logger
 from dataclasses import dataclass
 from typing import List, Optional, Dict
 from src.config import config
 from src.utils.http_client import http_client
+
+logger = get_logger(__name__)
+
 
 @dataclass
 class IssueDetails:
@@ -37,8 +40,7 @@ class TDCrawler:
         """批量获取bug详情"""
         logger.info(f"开始批量获取 {len(bug_ids)} 个bug详情")
         results = http_client.chunk_concurrent_map(
-            self._fetch_bug_details_batch,
-            bug_ids
+            self._fetch_bug_details_batch, bug_ids
         )
         logger.info(f"批量获取完成，成功获取 {len(results)} 个bug详情")
         return results
@@ -63,7 +65,9 @@ class TDCrawler:
     def get_bug_details(self, bug_id: str) -> Optional[IssueDetails]:
         """获取bug详情，遍历所有配置直到找到匹配的bug"""
         logger.debug(f"尝试获取bug {bug_id} 的详情")
-        for idx, (base_url, headers) in enumerate(zip(self.base_urls, self.headers_list)):
+        for idx, (base_url, headers) in enumerate(
+            zip(self.base_urls, self.headers_list)
+        ):
             try:
                 logger.debug(f"尝试从TD系统 {idx + 1} 获取bug {bug_id} 的详情")
                 result = self._fetch_bug_details(bug_id, base_url, headers)
@@ -71,22 +75,26 @@ class TDCrawler:
                     logger.debug(f"在TD系统 {idx + 1} 中找到bug {bug_id} 的详情")
                     return result
             except Exception as e:
-                logger.warning(f"从TD系统 {idx + 1} 获取bug {bug_id} 详情失败: {str(e)}")
+                logger.warning(
+                    f"从TD系统 {idx + 1} 获取bug {bug_id} 详情失败: {str(e)}"
+                )
                 continue
         logger.warning(f"在所有TD系统中都未找到bug {bug_id} 的详情")
         return None
 
-    def _fetch_bug_details(self, bug_id: str, base_url: str, headers: dict) -> Optional[IssueDetails]:
+    def _fetch_bug_details(
+        self, bug_id: str, base_url: str, headers: dict
+    ) -> Optional[IssueDetails]:
         """从指定的TD系统获取bug详情"""
         url = f"{base_url}/api/v1/defect/by_key/{bug_id}?_t={self._get_timestamp()}"
-        
+
         response = http_client.get(url, headers=headers)
         data = response.json()
         data_data = data.get("data", {})
         if not data_data:
             logger.debug(f"TD系统返回的数据中没有找到bug {bug_id} 的详情")
             return None
-            
+
         fields = data_data.get("fields", {})
         logger.debug(f"成功获取bug {bug_id} 的原始数据，开始解析")
 
@@ -107,14 +115,16 @@ class TDCrawler:
                 actual_result=self._parse_desc_section(desc_content, "实际结果"),
                 log_info=self._parse_desc_section(desc_content, "日志信息"),
                 environment=self._parse_desc_section(desc_content, "测试环境"),
-                root_cause=self._parse_comment_section(comment_content, r"问题根因.*?|问题原因.*?"),
+                root_cause=self._parse_comment_section(
+                    comment_content, r"问题根因.*?|问题原因.*?"
+                ),
                 fix_solution=self._parse_comment_section(comment_content, "如何修改"),
                 related_issues=self._parse_related_issues(comment_content),
                 fix_person=fields.get("fix_person", {}).get("display_name"),
                 create_at=fields.get("create_at", ""),
                 fix_date=fields.get("fix_date", ""),
                 reopen_count=fields.get("reopen_count", 0),
-                handlers=fields.get("handlers", [])
+                handlers=fields.get("handlers", []),
             )
             logger.debug(f"成功解析bug {bug_id} 的详情数据")
             return issue
@@ -128,7 +138,7 @@ class TDCrawler:
             "测试步骤": self._parse_desc_section(desc, "测试步骤"),
             "期望结果": self._parse_desc_section(desc, "期望结果"),
             "实际结果": self._parse_desc_section(desc, "实际结果"),
-            "日志信息": self._parse_desc_section(desc, "日志信息")
+            "日志信息": self._parse_desc_section(desc, "日志信息"),
         }
         return "\n".join([f"{k}：{v}" for k, v in elements.items() if v])
 
@@ -137,8 +147,7 @@ class TDCrawler:
         if not isinstance(desc, str):
             return ""
         try:
-            match = re.search(
-                rf"【{section}】</p><p>(.*?)(?=【|</p>)", desc, re.DOTALL)
+            match = re.search(rf"【{section}】</p><p>(.*?)(?=【|</p>)", desc, re.DOTALL)
             return re.sub(r"<[^>]+>", "", match.group(1)).strip() if match else ""
         except (AttributeError, TypeError) as e:
             logger.warning(f"解析{section}部分时发生错误: {str(e)}")
@@ -150,7 +159,8 @@ class TDCrawler:
             return ""
         try:
             match = re.search(
-                rf"【{section}】</p><p>(.*?)(?=<br/>|</p>|$)", comment, re.DOTALL)
+                rf"【{section}】</p><p>(.*?)(?=<br/>|</p>|$)", comment, re.DOTALL
+            )
             if match:
                 return re.sub(r"<[^>]+>", "", match.group(1)).strip()
             return ""
@@ -172,4 +182,5 @@ class TDCrawler:
     def _get_timestamp(self) -> str:
         """获取当前时间戳"""
         import time
+
         return str(int(time.time() * 1000))
