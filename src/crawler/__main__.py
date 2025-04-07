@@ -91,6 +91,11 @@ def main():
         # 处理每个bug
         for bug_id in code_snippets_map:
             try:
+                # 检查bug是否已存在
+                if db.bug_id_exists(bug_id):
+                    logger.info(f"Bug {bug_id} already exists in database, skipping...")
+                    continue
+
                 # 获取bug详情
                 issue_details = get_td_issue_details(td_crawler, td_configs, bug_id)
                 if not issue_details:
