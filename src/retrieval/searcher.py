@@ -1,4 +1,4 @@
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple
 from src.config import config
 from src.models.bug_models import BugReport
 from src.storage.vector_store import VectorStore
@@ -84,6 +84,86 @@ class BugSearcher:
 
         except Exception as e:
             logger.error(f"添加BUG报告失败: {str(e)}")
+            logger.error(f"错误堆栈: {traceback.format_exc()}")
+            return False
+
+    def get_bug_by_id(self, bug_id: str) -> Optional[Dict]:
+        """获取指定bug的详细信息
+
+        Args:
+            bug_id: BUG的唯一标识符
+
+        Returns:
+            Optional[Dict]: BUG详情，如果不存在则返回None
+        """
+        try:
+            return self.vector_store.db.get_bug_report(bug_id)
+        except Exception as e:
+            logger.error(f"获取bug {bug_id} 详情失败: {str(e)}")
+            logger.error(f"错误堆栈: {traceback.format_exc()}")
+            return None
+
+    def list_bugs(
+        self, 
+        page: int = 1, 
+        page_size: int = 10,
+        project_id: Optional[str] = None,
+        severity: Optional[str] = None
+    ) -> Tuple[int, List[Dict]]:
+        """获取bug列表，支持分页和过滤
+
+        Args:
+            page: 页码，从1开始
+            page_size: 每页数量
+            project_id: 项目ID过滤
+            severity: 严重程度过滤
+
+        Returns:
+            Tuple[int, List[Dict]]: (总数, bug列表)
+        """
+        try:
+            offset = (page - 1) * page_size
+            return self.vector_store.db.get_bug_reports(
+                offset=offset,
+                limit=page_size,
+                project_id=project_id,
+                severity=severity
+            )
+        except Exception as e:
+            logger.error(f"获取bug列表失败: {str(e)}")
+            logger.error(f"错误堆栈: {traceback.format_exc()}")
+            return 0, []
+
+    def update_bug(self, bug_id: str, data: Dict) -> bool:
+        """更新bug信息
+
+        Args:
+            bug_id: BUG的唯一标识符
+            data: 要更新的字段和值
+
+        Returns:
+            bool: 更新是否成功
+        """
+        try:
+            return self.vector_store.db.update_bug_report(bug_id, data)
+        except Exception as e:
+            logger.error(f"更新bug {bug_id} 失败: {str(e)}")
+            logger.error(f"错误堆栈: {traceback.format_exc()}")
+            return False
+
+    def delete_bug(self, bug_id: str) -> bool:
+        """删除指定的bug
+
+        Args:
+            bug_id: BUG的唯一标识符
+
+        Returns:
+            bool: 删除是否成功
+        """
+        try:
+            return self.vector_store.db.delete_bug_report(bug_id)
+        except Exception as e:
+            logger.error(f"删除bug {bug_id} 失败: {str(e)}")
             logger.error(f"错误堆栈: {traceback.format_exc()}")
             return False
 

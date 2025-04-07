@@ -32,7 +32,6 @@
       id="file_paths"
       name="file_paths"
       rows="3"
-      required
     ></textarea>
     <div class="form-text">每行输入一个文件路径</div>
   </div>
@@ -44,7 +43,6 @@
       id="code_diffs"
       name="code_diffs"
       rows="5"
-      required
     ></textarea>
     <div class="form-text">每行输入一个代码差异，使用标准diff格式</div>
   </div>
@@ -57,7 +55,6 @@
         id="aggregated_added_code"
         name="aggregated_added_code"
         rows="5"
-        required
       ></textarea>
     </div>
     <div class="col-md-6 mb-3">
@@ -67,7 +64,6 @@
         id="aggregated_removed_code"
         name="aggregated_removed_code"
         rows="5"
-        required
       ></textarea>
     </div>
   </div>
@@ -79,7 +75,6 @@
       id="test_steps"
       name="test_steps"
       rows="3"
-      required
     ></textarea>
   </div>
 
@@ -91,7 +86,6 @@
         id="expected_result"
         name="expected_result"
         rows="3"
-        required
       ></textarea>
     </div>
     <div class="col-md-6 mb-3">
@@ -101,7 +95,6 @@
         id="actual_result"
         name="actual_result"
         rows="3"
-        required
       ></textarea>
     </div>
   </div>
@@ -113,7 +106,6 @@
       id="log_info"
       name="log_info"
       rows="3"
-      required
     ></textarea>
   </div>
 
@@ -125,7 +117,6 @@
         class="form-control"
         id="severity"
         name="severity"
-        required
       />
     </div>
     <div class="col-md-6 mb-3">
@@ -135,7 +126,6 @@
         class="form-control"
         id="is_reappear"
         name="is_reappear"
-        required
       />
     </div>
   </div>
@@ -147,7 +137,6 @@
       class="form-control"
       id="environment"
       name="environment"
-      required
     />
   </div>
 
@@ -212,7 +201,6 @@
       class="form-control"
       id="project_id"
       name="project_id"
-      required
     />
   </div>
 
@@ -225,13 +213,82 @@
     .addEventListener("submit", async function (e) {
       e.preventDefault();
 
-      const formData = new FormData(this);
+      // 清除所有错误提示
+      document.querySelectorAll('.is-invalid').forEach(el => {
+        el.classList.remove('is-invalid');
+      });
+
+      const formData = new FormData();
+      // 只保留bug_id和summary为必填字段
+      const requiredFields = ['bug_id', 'summary'];
+      
+      // 获取所有表单字段
+      const fields = [
+        'bug_id', 'summary', 'file_paths', 'code_diffs',
+        'aggregated_added_code', 'aggregated_removed_code',
+        'test_steps', 'expected_result', 'actual_result',
+        'log_info', 'severity', 'is_reappear', 'environment',
+        'root_cause', 'fix_solution', 'related_issues',
+        'fix_person', 'handlers', 'project_id'
+      ];
+
+      // 验证必填字段
+      let hasError = false;
+      requiredFields.forEach(field => {
+        const element = document.getElementById(field);
+        if (!element || !element.value.trim()) {
+          element.classList.add('is-invalid');
+          hasError = true;
+        }
+      });
+
+      if (hasError) {
+        alert('请填写所有必填字段');
+        return;
+      }
+
+      // 处理数组字段
+      const arrayFields = ['file_paths', 'code_diffs', 'related_issues', 'handlers'];
+      
+      fields.forEach(field => {
+        const element = document.getElementById(field);
+        if (!element) return;
+        
+        let value = element.value.trim();
+        
+        // 对数组字段进行特殊处理
+        if (arrayFields.includes(field)) {
+          if (!value) {
+            // 如果数组字段为空，使用空数组
+            value = '[]';
+          } else {
+            try {
+              // 检查是否已经是JSON字符串
+              JSON.parse(value);
+            } catch {
+              // 不是JSON字符串，则进行转换
+              value = JSON.stringify(
+                value.split('\n')
+                  .map(line => line.trim())
+                  .filter(line => line.length > 0)
+              );
+            }
+          }
+        }
+        
+        formData.append(field, value); // 发送空字符串而不是undefined
+      });
 
       try {
-        const response = await fetch("/add", {
+        const response = await fetch("/api/bugs", {
           method: "POST",
           body: formData,
         });
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.detail || '请求失败');
+        }
 
         const result = await response.json();
 
@@ -239,11 +296,11 @@
           alert(`BUG报告添加成功！ID: ${result.bug_id}`);
           window.location.href = "/";
         } else {
-          alert("添加失败，请重试");
+          alert(`添加失败：${result.detail || "请重试"}`);
         }
       } catch (error) {
         console.error("Error:", error);
-        alert("发生错误，请重试");
+        alert(`提交失败：${error.message}`);
       }
     });
 </script>

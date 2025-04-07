@@ -2,7 +2,7 @@ import sqlite3
 import json
 from pathlib import Path
 import traceback
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Tuple
 from datetime import datetime
 from contextlib import contextmanager
 from src.utils.log import get_logger
@@ -398,3 +398,85 @@ class BugDatabase:
             logger.error(f"关键词搜索失败: {str(e)}")
             logger.error(f"错误堆栈: {traceback.format_exc()}")
             return []
+
+    def get_bug_reports(
+        self,
+        offset: int = 0,
+        limit: int = 10,
+        project_id: Optional[str] = None,
+        severity: Optional[str] = None,
+    ) -> Tuple[int, List[Dict[str, Any]]]:
+        """获取bug报告列表，支持分页和过滤
+
+        Args:
+            offset: 偏移量
+            limit: 返回数量限制
+            project_id: 项目ID过滤
+            severity: 严重程度过滤
+
+        Returns:
+            Tuple[int, List[Dict[str, Any]]]: (总数, bug列表)
+        """
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+
+                # 构建WHERE子句和参数
+                conditions = []
+                params = []
+                if project_id:
+                    conditions.append("project_id = ?")
+                    params.append(project_id)
+                if severity:
+                    conditions.append("severity = ?")
+                    params.append(severity)
+
+                where_clause = " AND ".join(conditions) if conditions else "1=1"
+
+                # 获取总数
+                count_sql = f"SELECT COUNT(*) FROM bug_reports WHERE {where_clause}"
+                cursor.execute(count_sql, params)
+                total = cursor.fetchone()[0]
+
+                # 获取分页数据
+                sql = f"""
+                    SELECT * FROM bug_reports 
+                    WHERE {where_clause}
+                    ORDER BY create_at DESC
+                    LIMIT ? OFFSET ?
+                """
+                cursor.execute(sql, params + [limit, offset])
+                rows = cursor.fetchall()
+
+                if not rows:
+                    return total, []
+
+                # 获取列名
+                columns = [description[0] for description in cursor.description]
+                results = []
+
+                for row in rows:
+                    result = dict(zip(columns, row))
+
+                    # 处理JSON字段
+                    json_fields = [
+                        "file_paths",
+                        "code_diffs",
+                        "related_issues",
+                        "handlers",
+                    ]
+                    for field in json_fields:
+                        if result.get(field):
+                            try:
+                                result[field] = json.loads(result[field])
+                            except json.JSONDecodeError:
+                                logger.warning(f"无法解析JSON字段 {field} 的值")
+
+                    results.append(result)
+
+                return total, results
+
+        except Exception as e:
+            logger.error(f"获取bug报告列表失败: {str(e)}")
+            logger.error(f"错误堆栈: {traceback.format_exc()}")
+            return 0, []

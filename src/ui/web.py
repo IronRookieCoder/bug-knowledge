@@ -1,25 +1,26 @@
-from fastapi import FastAPI, Request, Form, UploadFile, HTTPException
+from fastapi import FastAPI, Request
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse
+from typing import List
 import uvicorn
-from typing import List, Optional, Dict, Any
-from datetime import datetime
-from src.utils.log import get_logger
 import socket
 import traceback
 import os
 import pickle
 import json
+from pathlib import Path
 from annoy import AnnoyIndex
 import time
+import tempfile
 
-from src.models.bug_models import BugReport
-from src.retrieval.searcher import BugSearcher
+from src.utils.log import get_logger
 from src.config import config
+from src.ui.routers import bug
+from src.retrieval.searcher import BugSearcher
+from src.retrieval.searcher_manager import set_bug_searcher
 
 logger = get_logger(__name__)
-
 
 def find_available_port(start_port: int = 8000, max_port: int = 8999) -> int:
     """查找可用端口"""
@@ -32,8 +33,7 @@ def find_available_port(start_port: int = 8000, max_port: int = 8999) -> int:
             continue
     raise RuntimeError(f"在端口范围 {start_port}-{max_port} 内没有找到可用端口")
 
-
-def create_web_app(searcher: BugSearcher) -> FastAPI:  # Removed config parameter
+def create_web_app() -> FastAPI:
     """创建Web应用实例"""
     app = FastAPI(title="BUG知识库系统")
 
@@ -51,162 +51,113 @@ def create_web_app(searcher: BugSearcher) -> FastAPI:  # Removed config paramete
     async def add_page(request: Request):
         return templates.TemplateResponse("add.html", {"request": request})
 
-    @app.post("/add")
-    async def add_bug(
-        bug_id: str = Form(...),
-        summary: str = Form(...),
-        file_paths: str = Form(...),
-        code_diffs: str = Form(...),
-        aggregated_added_code: str = Form(...),
-        aggregated_removed_code: str = Form(...),
-        test_steps: str = Form(...),
-        expected_result: str = Form(...),
-        actual_result: str = Form(...),
-        log_info: str = Form(...),
-        severity: str = Form(...),
-        is_reappear: str = Form(...),
-        environment: str = Form(...),
-        root_cause: str = Form(None),
-        fix_solution: str = Form(None),
-        related_issues: str = Form(...),
-        fix_person: str = Form(None),
-        handlers: str = Form(...),
-        project_id: str = Form(...),
-    ):
-        try:
-            # 解析JSON字符串
-            file_paths_list = json.loads(file_paths)
-            code_diffs_list = json.loads(code_diffs)
-            related_issues_list = json.loads(related_issues)
-            handlers_list = json.loads(handlers)
-
-            # 创建BugReport对象
-            bug_report = BugReport(
-                bug_id=bug_id,
-                summary=summary,
-                file_paths=file_paths_list,
-                code_diffs=code_diffs_list,
-                aggregated_added_code=aggregated_added_code,
-                aggregated_removed_code=aggregated_removed_code,
-                test_steps=test_steps,
-                expected_result=expected_result,
-                actual_result=actual_result,
-                log_info=log_info,
-                severity=severity,
-                is_reappear=is_reappear,
-                environment=environment,
-                root_cause=root_cause,
-                fix_solution=fix_solution,
-                related_issues=related_issues_list,
-                fix_person=fix_person,
-                create_at=datetime.now().isoformat(),
-                fix_date=datetime.now().isoformat(),
-                reopen_count=0,
-                handlers=handlers_list,
-                project_id=project_id,
-            )
-
-            # 保存到知识库
-            searcher.add_bug_report(bug_report)
-            return {"status": "success", "bug_id": bug_report.bug_id}
-        except Exception as e:
-            logger.error(f"添加Bug报告失败: {str(e)}")
-            logger.error(f"错误堆栈: {traceback.format_exc()}")
-            raise HTTPException(status_code=500, detail=f"添加Bug报告失败: {str(e)}")
-
     @app.get("/search", response_class=HTMLResponse)
     async def search_page(request: Request):
         return templates.TemplateResponse("search.html", {"request": request})
 
-    @app.post("/api/search")
-    async def search_bugs(
-        summary: str = Form(""),
-        test_steps: str = Form(""),
-        expected_result: str = Form(""),
-        actual_result: str = Form(""),
-        code: str = Form(""),
-        error_logs: str = Form(""),
-        n_results: int = Form(5),
-    ):
-        """搜索BUG"""
-        try:
-            # 记录搜索参数
-            logger.info("收到搜索请求:")
-            logger.info(
-                f"  - 摘要: {summary[:50]}..."
-                if len(summary) > 50
-                else f"  - 摘要: {summary}"
-            )
-            logger.info(f"  - 代码长度: {len(code)}")
-            logger.info(f"  - 测试步骤长度: {len(test_steps)}")
-            logger.info(f"  - 预期结果长度: {len(expected_result)}")
-            logger.info(f"  - 实际结果长度: {len(actual_result)}")
-            logger.info(f"  - 日志长度: {len(error_logs)}")
-            logger.info(f"  - 请求结果数量: {n_results}")
-
-            # 检查每个字段是否有内容
-            has_content = {
-                "summary": bool(summary and summary.strip()),
-                "code": bool(code and code.strip()),
-                "test": bool(
-                    (test_steps and test_steps.strip())
-                    or (expected_result and expected_result.strip())
-                    or (actual_result and actual_result.strip())
-                ),
-                "log": bool(error_logs and error_logs.strip()),
-            }
-
-            logger.info(f"搜索字段内容状态: {has_content}")
-
-            # 如果没有任何输入
-            if not any(has_content.values()):
-                logger.warning("没有提供任何搜索条件")
-                return {"status": "error", "message": "请至少输入一个搜索条件"}
-
-            logger.info(f"执行搜索, 请求 {n_results} 个结果")
-
-            results = searcher.search(
-                summary=summary,
-                test_steps=test_steps,
-                expected_result=expected_result,
-                actual_result=actual_result,
-                code=code,
-                log_info=error_logs,
-                n_results=n_results,
-            )
-
-            # 记录搜索结果
-            if results:
-                logger.info(f"搜索完成, 获得 {len(results)} 个结果")
-                result_ids = [
-                    r.get("bug_id", "unknown") for r in results[: min(10, len(results))]
-                ]
-                logger.info(f"搜索结果ID: {result_ids}")
-                # 记录每个结果的相似度得分和详细信息
-                for i, result in enumerate(results[: min(5, len(results))], 1):
-                    distance = result.get(
-                        "distance", ""
-                    )  # 使用get方法，如果distance不存在则返回'N/A'
-                    bug_id = result.get("bug_id", "unknown")
-                    summary = result.get("summary", "")[:50]
-                    logger.info(
-                        f"结果 #{i}: ID={bug_id}, 距离={distance}, 摘要={summary}..."
-                    )
-            else:
-                logger.info("未找到匹配的结果")
-
-            return {"status": "success", "results": results[:n_results]}
-
-        except Exception as e:
-            logger.error(f"搜索失败: {str(e)}")
-            logger.error(f"错误堆栈: {traceback.format_exc()}")
-            return {"status": "error", "message": f"搜索失败: {str(e)}"}
+    # Include routers
+    app.include_router(bug.router)
 
     return app
 
+def init_vector_indices():
+    """初始化向量索引"""
+    try:
+        # 从环境变量获取临时目录路径，如果未设置则使用系统临时目录
+        temp_dir = os.environ.get("BUG_KNOWLEDGE_TEMP_DIR")
+        if not temp_dir:
+            temp_dir = os.path.join(tempfile.gettempdir(), "bug_knowledge")
+            os.environ["BUG_KNOWLEDGE_TEMP_DIR"] = temp_dir
+            logger.info(f"未设置临时目录路径，使用系统临时目录：{temp_dir}")
+
+        # 获取向量存储配置
+        vector_store_config = config.get("VECTOR_STORE", {
+            "vector_dim": 384,
+            "index_type": "angular",
+            "n_trees": 10,
+            "similarity_threshold": 1.2,
+            "data_dir": "data/annoy"
+        })
+
+        # 确保目录存在
+        temp_dir_path = Path(temp_dir)
+        temp_dir_path.mkdir(parents=True, exist_ok=True)
+
+        # 创建配置目录
+        config_path = temp_dir_path / "config.pkl"
+        if not config_path.exists():
+            with open(config_path, "wb") as f:
+                pickle.dump(vector_store_config, f)
+            logger.info("创建默认配置文件")
+
+        # 创建索引目录
+        indices_dir = temp_dir_path / "indices"
+        indices_dir.mkdir(exist_ok=True)
+
+        # 获取向量维度和其他配置
+        vector_dim = vector_store_config["vector_dim"]
+        index_type = vector_store_config["index_type"]
+        n_trees = vector_store_config["n_trees"]
+        
+        # 初始化向量索引
+        index_files = ["summary.ann", "code.ann", "test_info.ann", "log_info.ann", "environment.ann"]
+        
+        # 添加重试机制
+        max_retries = 3
+        retry_delay = 0.5  # 秒
+
+        for index_file in index_files:
+            index_path = indices_dir / index_file
+            if not index_path.exists():
+                # 如果索引文件不存在，创建一个空的索引
+                index = AnnoyIndex(vector_dim, index_type)
+                index.build(n_trees)
+                index.save(str(index_path))
+                logger.info(f"创建新的空索引: {index_file}")
+                continue
+
+            for attempt in range(max_retries):
+                try:
+                    index = AnnoyIndex(vector_dim, index_type)
+                    index.load(str(index_path))
+                    logger.info(f"成功加载索引: {index_file}")
+                    break
+                except Exception as e:
+                    logger.warning(
+                        f"加载索引 {index_file} 失败 (尝试 {attempt + 1}/{max_retries}): {str(e)}"
+                    )
+                    if attempt < max_retries - 1:
+                        time.sleep(retry_delay)
+                    else:
+                        logger.error(f"加载索引 {index_file} 失败，已达到最大重试次数")
+                        index = AnnoyIndex(vector_dim, index_type)
+                        index.build(n_trees)
+                        index.save(str(index_path))
+                        logger.info(f"创建并保存新的空索引: {index_file}")
+
+    except Exception as e:
+        logger.error(f"初始化向量索引失败: {str(e)}")
+        logger.error(f"错误堆栈: {traceback.format_exc()}")
+        raise RuntimeError(f"初始化向量索引失败: {str(e)}")
+
+def create_app() -> FastAPI:
+    """创建FastAPI应用的工厂函数"""
+    try:
+        # 初始化向量索引
+        init_vector_indices()
+        
+        # 初始化BugSearcher
+        searcher = BugSearcher()
+        set_bug_searcher(searcher)
+        
+        # 创建Web应用
+        return create_web_app()
+    except Exception as e:
+        logger.error(f"创建应用失败: {str(e)}")
+        logger.error(f"错误堆栈: {traceback.format_exc()}")
+        raise RuntimeError(f"创建应用失败: {str(e)}")
 
 def start_web_app(
-    searcher: BugSearcher,
     host: str = None,
     port: int = None,
     reload: bool = False,
@@ -216,11 +167,7 @@ def start_web_app(
 ):
     """启动Web应用"""
     try:
-        # 获取向量存储实例
-        vector_store = searcher.vector_store
-
-        # 创建FastAPI应用
-        app = create_web_app(searcher)
+        app = create_app()
 
         # 使用配置中的host和port，如果没有提供参数的话
         web_config = config.get("WEB", {})
@@ -250,82 +197,10 @@ def start_web_app(
         logger.error(f"错误堆栈: {traceback.format_exc()}")
         raise RuntimeError(f"启动Web应用失败: {str(e)}")
 
-
-def create_app(searcher: BugSearcher) -> FastAPI:  # Removed config parameter
-    """创建FastAPI应用的工厂函数"""
-    try:
-        # 从环境变量获取临时目录路径
-        temp_dir = os.environ.get("BUG_KNOWLEDGE_TEMP_DIR")
-        if not temp_dir:
-            raise RuntimeError("临时目录路径未设置")
-
-        # 加载配置
-        with open(os.path.join(temp_dir, "config.pkl"), "rb") as f:
-            loaded_config = pickle.load(f)
-
-        # 创建新的 BugSearcher 实例
-        searcher = BugSearcher()
-        vector_store = searcher.vector_store
-
-        # 加载元数据
-        with open(os.path.join(temp_dir, "metadata.json"), "r", encoding="utf-8") as f:
-            vector_store.metadata = json.load(f)
-
-        # 加载索引文件
-        indices_dir = os.path.join(temp_dir, "indices")
-
-        # 创建并加载索引
-        vector_store.question_index = AnnoyIndex(384, "angular")
-        vector_store.code_index = AnnoyIndex(384, "angular")
-        vector_store.log_index = AnnoyIndex(384, "angular")
-        # 添加重试机制
-        max_retries = 3
-        retry_delay = 0.5  # 秒
-
-        for index_name, index in [
-            ("question", vector_store.question_index),
-            ("code", vector_store.code_index),
-            ("log", vector_store.log_index),
-            ("env", vector_store.env_index),
-        ]:
-            index_path = os.path.join(indices_dir, f"{index_name}.ann")
-            if os.path.exists(index_path):
-                for attempt in range(max_retries):
-                    try:
-                        index.load(index_path)
-                        logger.info(f"成功加载索引: {index_name}")
-                        break
-                    except Exception as e:
-                        logger.warning(
-                            f"加载索引 {index_name} 失败 (尝试 {attempt + 1}/{max_retries}): {str(e)}"
-                        )
-                        if attempt < max_retries - 1:
-                            time.sleep(retry_delay)
-                        else:
-                            logger.error(
-                                f"加载索引 {index_name} 失败，已达到最大重试次数"
-                            )
-                            # 如果加载失败，创建一个新的空索引并保存
-                            index = AnnoyIndex(384, "angular")
-                            index.build(10)
-                            index.save(index_path)
-                            logger.info(f"创建并保存新的空索引: {index_name}")
-
-        return create_web_app(searcher)
-    except Exception as e:
-        logger.error(f"创建应用失败: {str(e)}")
-        logger.error(f"错误堆栈: {traceback.format_exc()}")
-        raise RuntimeError(f"创建应用失败: {str(e)}")
-
-
 def main():
     logger.info("正在启动 Web 服务器...")
-
     try:
-        # 初始化BugSearcher
-        bug_searcher = BugSearcher()
-
-        start_web_app(bug_searcher, reload=True)  # 启用热更新
+        start_web_app(reload=True)  # 启用热更新
     except Exception as e:
         logger.error(f"Web 服务器启动失败: {str(e)}")
         logger.error(f"错误堆栈: {traceback.format_exc()}")

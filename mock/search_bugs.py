@@ -6,11 +6,11 @@ from pathlib import Path
 project_root = str(Path(__file__).parent.parent)
 sys.path.insert(0, project_root)
 
-from src.retrieval.searcher import BugSearcher
+from src.retrieval.searcher_manager import get_bug_searcher
 
 def search_bugs():
-    # 初始化搜索器
-    searcher = BugSearcher()
+    # 获取搜索器实例
+    searcher = get_bug_searcher()
     
     # 搜索示例
     print("\n=== Bug 知识库搜索系统 ===\n")
@@ -100,4 +100,4 @@ def search_bugs():
             print("-" * 50)
 
 if __name__ == "__main__":
-    search_bugs() 
+    search_bugs()

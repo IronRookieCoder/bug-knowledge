@@ -9,28 +9,24 @@ sys.path.insert(0, project_root)
 import json
 from datetime import datetime
 from src.models.bug_models import BugReport
-from src.retrieval.searcher import BugSearcher
+from src.retrieval.searcher_manager import get_bug_searcher
 from rich.console import Console
 
 console = Console()
 
-def load_mock_data(searcher: BugSearcher = None):
+
+def load_mock_data():
     """从数据库加载测试数据到搜索器"""
-    # 初始化搜索器
-    if searcher is None:
-        # 创建带有写入模式的向量存储
-        from src.storage.vector_store import VectorStore
-        vector_store = VectorStore(data_dir="data/annoy")
-        searcher = BugSearcher(vector_store=vector_store)
-    
     try:
+        searcher = get_bug_searcher()
+
         # 从数据库获取所有bug报告
         bug_reports = searcher.vector_store.db.get_all_bug_reports()
-        
+
         # 加载数据到系统
         total = len(bug_reports)
         success = 0
-        
+
         with console.status("[bold green]正在加载测试数据...") as status:
             for bug_report in bug_reports:
                 try:
@@ -58,26 +54,24 @@ def load_mock_data(searcher: BugSearcher = None):
                         fix_date=bug_report["fix_date"],
                         reopen_count=bug_report["reopen_count"],
                         handlers=bug_report["handlers"],
-                        project_id=bug_report["project_id"]
+                        project_id=bug_report["project_id"],
                     )
-                    
+
                     # 添加到知识库
                     searcher.add_bug_report(bug_report_obj)
                     success += 1
                 except Exception as e:
                     console.print(f"[red]添加bug report失败: {str(e)}[/red]")
                     continue
-        
+
         if success == total:
             console.print(f"[green]成功加载全部 {total} 条测试数据[/green]")
         else:
             console.print(f"[yellow]加载完成：成功 {success}/{total} 条[/yellow]")
-        
-        return searcher
-        
+
     except Exception as e:
         console.print(f"[red]错误：加载测试数据失败: {str(e)}[/red]")
-        return None
+
 
 if __name__ == "__main__":
-    load_mock_data() 
+    load_mock_data()

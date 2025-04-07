@@ -159,7 +159,7 @@
       resultsDiv.innerHTML = "";
 
       try {
-        const response = await fetch("/api/search", {
+        const response = await fetch("/api/bugs/search", {
           method: "POST",
           body: formData,
         });

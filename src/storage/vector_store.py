@@ -23,7 +23,7 @@ class VectorStore:
         vector_dim: int = 384,
         index_type: str = "angular",
         n_trees: int = 10,
-        similarity_threshold: float = 1.0,
+        similarity_threshold: float = 1.2,
     ):
         self.data_dir = Path(data_dir)
         self.vector_dim = vector_dim

@@ -3,6 +3,7 @@ import sys
 from pathlib import Path
 import time
 from src.utils.log import get_logger
+import os
 
 logger = get_logger(__name__)
 
@@ -19,6 +20,26 @@ from src.storage.__main__ import main as storage_main
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
+
+
+def ensure_directories():
+    """确保必要的目录结构存在"""
+    dirs = [
+        config.get("DATABASE_PATH", "data/bugs.db"),
+        config.get("VECTOR_STORE")["data_dir"],
+        config.get("MODEL")["cache_dir"],
+        config.get("LOG")["file"],
+        os.environ.get("BUG_KNOWLEDGE_TEMP_DIR", "data/temp")
+    ]
+    
+    for path in dirs:
+        dir_path = Path(path)
+        if not dir_path.suffix:  # 如果是目录路径
+            dir_path.mkdir(parents=True, exist_ok=True)
+        else:  # 如果是文件路径
+            dir_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    logger.info("目录结构初始化完成")
 
 
 def main():
@@ -59,6 +80,9 @@ def main():
     if args.port:
         config._config["WEB"]["port"] = args.port
 
+    # 确保必要的目录结构存在
+    ensure_directories()
+
     def run_task():
         if args.mode == "all":
             logger.info("开始执行所有任务...")
@@ -80,10 +104,8 @@ def main():
             # 3. Web服务
             try:
                 logger.info("3. 启动Web服务...")
-                searcher = BugSearcher()
                 web_config = config._config["WEB"]
                 start_web_app(
-                    searcher=searcher,
                     host=web_config["host"],
                     port=web_config["port"],
                 )
@@ -98,10 +120,8 @@ def main():
             storage_main()
         elif args.mode == "web":
             logger.info("启动Web服务...")
-            searcher = BugSearcher()
             web_config = config._config["WEB"]
             start_web_app(
-                searcher=searcher,
                 host=web_config["host"],
                 port=web_config["port"],
             )
