@@ -3,11 +3,51 @@
 # 错误处理
 set -e
 
-# 检查并激活 conda 环境
-if ! conda activate bug-knowledge 2>/dev/null; then
-    echo "Error: bug-knowledge environment not found. Please run ./setup first"
-    exit 1
-fi
+# 清理现有环境
+clean_environment() {
+    # 检查是否在conda环境中
+    if [[ -n "$CONDA_PREFIX" ]]; then
+        if [[ "$OSTYPE" == "msys"* ]] || [[ "$OSTYPE" == "cygwin"* ]] || [[ "$OSTYPE" == "win"* ]]; then
+            cmd //c "conda deactivate"
+        else
+            conda deactivate
+        fi
+    fi
+
+    # 检查是否在venv环境中
+    if [[ -n "$VIRTUAL_ENV" ]]; then
+        deactivate 2>/dev/null || true
+    fi
+}
+
+# 检查并激活环境
+activate_environment() {
+    # 先清理当前环境
+    clean_environment
+
+    if command -v conda &> /dev/null; then
+        # 尝试激活conda环境
+        if ! conda activate bug-knowledge 2>/dev/null; then
+            echo "Error: bug-knowledge conda environment not found. Please run ./setup first"
+            exit 1
+        fi
+    else
+        # 尝试激活venv环境
+        if [[ "$OSTYPE" == "msys"* ]] || [[ "$OSTYPE" == "cygwin"* ]] || [[ "$OSTYPE" == "win"* ]]; then
+            VENV_ACTIVATE=".venv/Scripts/activate"
+        else
+            VENV_ACTIVATE=".venv/bin/activate"
+        fi
+
+        if [ ! -f "$VENV_ACTIVATE" ]; then
+            echo "Error: Python virtual environment not found. Please run ./setup first"
+            exit 1
+        fi
+        source "$VENV_ACTIVATE"
+    fi
+}
+
+activate_environment
 
 # 加载 .env 文件（如果存在）
 if [ -f ".env" ]; then

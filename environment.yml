@@ -1,12 +1,9 @@
 name: bug-knowledge
 channels:
-  - conda-forge
-  - pytorch
+  - defaults
 dependencies:
   - python=3.8.5
   - pip
-  - pytorch
   - numpy
-  - pandas
   - pip:
     - -r requirements.txt

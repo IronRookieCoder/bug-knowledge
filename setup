@@ -3,59 +3,130 @@
 # 错误处理
 set -e
 
-# 检查conda是否安装
-if ! command -v conda &> /dev/null; then
-    echo "Error: conda not found, please install Miniconda or Anaconda first"
-    exit 1
-fi
+ENV_NAME="bug-knowledge"
+PYTHON_CMD="python"
+PYTHON_MIN_VERSION="3.8"
 
-echo "Detecting operating system..."
-
-# Windows环境（Git Bash、Cygwin 或 MSYS）
-if [[ "$OSTYPE" == "msys"* ]] || [[ "$OSTYPE" == "cygwin"* ]] || [[ "$OSTYPE" == "win"* ]]; then
-    echo "Windows environment detected"
-    
-    # Windows环境下的conda路径处理
-    if [[ -z "${CONDA_PATH}" ]]; then
-        # 尝试常见的conda安装路径
-        if [ -d "/c/Users/$USER/miniconda3" ]; then
-            CONDA_PATH="/c/Users/$USER/miniconda3"
-        elif [ -d "/c/Users/$USER/Anaconda3" ]; then
-            CONDA_PATH="/c/Users/$USER/Anaconda3"
-        elif [ -d "/d/conda" ]; then
-            CONDA_PATH="/d/conda"
-        else
-            echo "Error: conda path not found, please set CONDA_PATH environment variable"
-            exit 1
-        fi
-    fi
-    
-    echo "Creating Conda environment..."
-    cmd //c "conda env create -f environment.yml"
-    
-    echo "Activating environment..."
-    cmd //c "conda activate bug-knowledge"
-    
-# Linux/Unix环境
-else
-    echo "Linux/Unix environment detected"
-    
-    # 确保脚本有执行权限
-    if [ ! -x "$(command -v conda)" ]; then
-        echo "Error: conda command not accessible, please check conda installation"
+# 检查Python版本
+check_python_version() {
+    if ! command -v $PYTHON_CMD &> /dev/null; then
+        echo "Error: Python not found"
         exit 1
     fi
     
-    echo "Creating Conda environment..."
-    conda env create -f environment.yml
+    version=$($PYTHON_CMD -c 'import sys; print(".".join(map(str, sys.version_info[:2])))')
+    if (( $(echo "$version < $PYTHON_MIN_VERSION" | bc -l) )); then
+        echo "Error: Python $PYTHON_MIN_VERSION or higher is required (current: $version)"
+        exit 1
+    fi
+}
+
+# 清理现有环境
+clean_environment() {
+    echo "Cleaning existing environment..."
     
-    echo "Activating environment..."
-    source "$(conda info --base)/etc/profile.d/conda.sh"
-    conda activate bug-knowledge
+    # 检查是否在conda环境中
+    if [[ -n "$CONDA_PREFIX" ]]; then
+        if [[ "$OSTYPE" == "msys"* ]] || [[ "$OSTYPE" == "cygwin"* ]] || [[ "$OSTYPE" == "win"* ]]; then
+            cmd //c "conda deactivate"
+        else
+            conda deactivate
+        fi
+    fi
+
+    # 检查是否在venv环境中
+    if [[ -n "$VIRTUAL_ENV" ]]; then
+        deactivate 2>/dev/null || true
+    fi
+
+    # 删除旧的venv目录
+    if [ -d ".venv" ]; then
+        echo "Removing existing venv directory..."
+        rm -rf .venv
+    fi
+
+    # 如果存在conda环境，删除它
+    if command -v conda &> /dev/null; then
+        if conda env list | grep -q "$ENV_NAME"; then
+            echo "Removing existing conda environment..."
+            if [[ "$OSTYPE" == "msys"* ]] || [[ "$OSTYPE" == "cygwin"* ]] || [[ "$OSTYPE" == "win"* ]]; then
+                cmd //c "conda env remove -n $ENV_NAME -y"
+            else
+                conda env remove -n $ENV_NAME -y
+            fi
+        fi
+    fi
+}
+
+# 使用Python venv创建虚拟环境
+setup_with_venv() {
+    echo "Setting up with Python venv..."
+    
+    # Windows环境
+    if [[ "$OSTYPE" == "msys"* ]] || [[ "$OSTYPE" == "cygwin"* ]] || [[ "$OSTYPE" == "win"* ]]; then
+        $PYTHON_CMD -m venv .venv
+        source .venv/Scripts/activate
+    else
+        # Linux/Unix环境
+        $PYTHON_CMD -m venv .venv
+        source .venv/bin/activate
+    fi
+    
+    # 升级pip
+    python -m pip install --upgrade pip
+    
+    # 从requirements.txt安装依赖
+    if [ -f "requirements.txt" ]; then
+        pip install -r requirements.txt
+    else
+        echo "Warning: requirements.txt not found"
+    fi
+    
+    echo "Python venv setup complete!"
+    if [[ "$OSTYPE" == "msys"* ]] || [[ "$OSTYPE" == "cygwin"* ]] || [[ "$OSTYPE" == "win"* ]]; then
+        echo "To activate the environment, run: source .venv/Scripts/activate"
+    else
+        echo "To activate the environment, run: source .venv/bin/activate"
+    fi
+}
+
+# 使用conda创建环境
+setup_with_conda() {
+    echo "Setting up with conda..."
+    
+    # Windows环境（Git Bash、Cygwin 或 MSYS）
+    if [[ "$OSTYPE" == "msys"* ]] || [[ "$OSTYPE" == "cygwin"* ]] || [[ "$OSTYPE" == "win"* ]]; then
+        echo "Windows environment detected"
+        cmd //c "conda env create -f environment.yml"
+        cmd //c "conda activate $ENV_NAME"
+    else
+        echo "Linux/Unix environment detected"
+        conda env create -f environment.yml
+        source "$(conda info --base)/etc/profile.d/conda.sh"
+        conda activate $ENV_NAME
+    fi
+    
+    echo "Conda environment setup complete!"
+    echo "To activate the environment, run: conda activate $ENV_NAME"
+}
+
+# 主要安装流程
+echo "Checking Python version..."
+check_python_version
+
+# 首先清理现有环境
+clean_environment
+
+# 检查conda是否可用并选择安装方式
+if command -v conda &> /dev/null; then
+    echo "Conda found, using conda for environment setup..."
+    setup_with_conda
+else
+    echo "Conda not found, falling back to Python venv..."
+    setup_with_venv
 fi
 
 # 创建必要的目录
 mkdir -p logs data/annoy
 
 echo "Environment setup complete!"
-echo "To activate the environment, run: conda activate bug-knowledge"
