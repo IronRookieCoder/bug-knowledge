@@ -20,13 +20,27 @@
 bug-knowledge/
 ├── data/
 │   ├── bugs.db         # SQLite数据库
+│   ├── temp/           # 临时文件目录
 │   └── annoy/          # 向量数据库存储目录
-│       └── backup/     # 索引备份目录
+│       ├── code.ann    # 代码相关向量
+│       ├── summary.ann # 摘要向量
+│       ├── test_info.ann # 测试信息向量
+│       ├── log_info.ann  # 日志向量
+│       ├── environment.ann # 环境信息向量
+│       ├── backup/     # 索引备份目录
+│       └── temp/       # 临时向量文件
 ├── docs/               # 项目文档
+│   ├── config_guide.md      # 配置指南
+│   ├── deployment_guide.md  # 部署指南
+│   └── *.puml              # 系统架构图
 ├── lm-models/          # 预训练模型
-├── src/
-│   ├── __main__.py    # 程序入口
-│   ├── config.py      # 配置管理
+│   └── all-MiniLM-L6-v2/   # Sentence Transformer模型
+├── logs/               # 日志目录
+│   ├── bug_knowledge.log    # 生产环境日志
+│   └── bug_knowledge_dev.log # 开发环境日志
+├── mock/              # 测试数据和脚本
+├── pip_cache/         # pip包缓存
+├── src/               # 源代码
 │   ├── crawler/       # 数据采集模块
 │   ├── features/      # 特征提取模块
 │   ├── models/        # 数据模型定义
@@ -36,9 +50,9 @@ bug-knowledge/
 │   ├── ui/            # Web界面
 │   ├── utils/         # 工具函数
 │   └── vectorization/ # 向量化模块
-├── mock/              # 测试数据
-├── start.sh          # 启动脚本
-└── rebuild.sh        # 环境重建脚本
+├── setup             # 环境配置脚本
+├── docker-compose.yml  # Docker编排配置
+└── Dockerfile         # Docker构建文件
 ```
 
 ## 系统要求
@@ -50,52 +64,57 @@ bug-knowledge/
 
 1. 克隆仓库并进入项目目录
 
-2. 运行环境重建脚本：
+2. 运行环境配置脚本：
+   ```bash
+   # Linux/MacOS
+   chmod +x setup
+   ./setup
 
-```bash
-./rebuild.sh
-```
+   # Windows (使用Git Bash)
+   ./setup
+   ```
 
 此脚本会自动：
+- 创建并激活 Conda 环境
+- 安装项目依赖
+- 创建必要的目录
+- 下载预训练模型（如果需要）
 
-- 检查 Python 版本
-- 创建虚拟环境
-- 安装所需依赖
-- 升级 pip
+3. 运行系统：
+   ```bash
+   # 完整模式
+   python -m src --mode all
 
-3. 使用启动脚本运行系统：
+   # 开发环境 Web 服务
+   python -m src --mode web
 
-```bash
-./start.sh --mode all
-```
+   # 生产环境 Web 服务
+   python -m src --mode web --host 0.0.0.0 --port 8010
+   ```
 
 ## 运行模式
 
 系统支持以下运行模式：
 
-1. 完整模式：
-
-```bash
-./start.sh --mode all
-```
+1. 完整模式（采集、存储、Web服务）：
+   ```bash
+   python -m src --mode all
+   ```
 
 2. 仅数据采集：
-
-```bash
-./start.sh --mode crawler
-```
+   ```bash
+   python -m src --mode crawler
+   ```
 
 3. 仅构建索引：
-
-```bash
-./start.sh --mode storage
-```
+   ```bash
+   python -m src --mode storage
+   ```
 
 4. 仅启动 Web 服务：
-
-```bash
-./start.sh --mode web
-```
+   ```bash
+   python -m src --mode web
+   ```
 
 ### 启动参数
 
@@ -110,16 +129,45 @@ bug-knowledge/
 ### 计划任务示例
 
 1. 每天凌晨 2 点执行：
-
-```bash
-./start.sh --mode all --schedule --hour 2 --minute 0
-```
+   ```bash
+   python -m src --mode all --schedule --hour 2 --minute 0
+   ```
 
 2. 每 12 小时执行一次：
+   ```bash
+   python -m src --mode all --schedule --interval 12
+   ```
 
-```bash
-./start.sh --mode all --schedule --interval 12
-```
+## Docker 部署
+
+系统提供了 Docker 支持，可以使用 Docker Compose 快速部署：
+
+1. 构建镜像：
+   ```bash
+   docker compose build
+   ```
+
+2. 启动服务：
+   ```bash
+   docker compose up -d
+   ```
+
+3. 查看日志：
+   ```bash
+   docker compose logs -f
+   ```
+
+4. 停止服务：
+   ```bash
+   docker compose down
+   ```
+
+### 数据持久化
+
+Docker 部署时以下数据通过卷挂载持久化：
+- `./data`: 数据库文件和向量存储
+- `./logs`: 应用日志
+- `./lm-models`: 预训练模型
 
 ## 技术架构
 
