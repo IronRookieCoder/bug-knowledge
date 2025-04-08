@@ -114,7 +114,7 @@ class GitLabCrawler:
         return None
 
     def get_commits(self, project_id: str) -> List[dict]:
-        """获取项目commit列表，使用日期范围，支持分页"""
+        """获取单个项目的commit列表，使用分页"""
         url = f"{self.base_url}/api/v4/projects/{project_id}/repository/commits"
         params = {"per_page": 100, "page": 1}  # 每页获取100个commit
 
@@ -147,11 +147,12 @@ class GitLabCrawler:
         return all_commits
 
     def get_commits_for_all_projects(self) -> List[dict]:
-        """获取所有项目的commits"""
+        """并发获取所有项目的commits"""
         logger.info(f"开始获取所有项目的提交记录，共 {len(self.project_ids)} 个项目")
         all_commits = http_client.concurrent_map(self.get_commits, self.project_ids)
-        logger.info(f"所有项目提交获取完成，共获取到 {len(all_commits)} 个提交")
-        return all_commits
+        flattened_commits = [commit for sublist in all_commits if sublist for commit in sublist]
+        logger.info(f"所有项目提交获取完成，共获取到 {len(flattened_commits)} 个提交")
+        return flattened_commits
 
     def get_commit_diff(self, project_id: str, commit_sha: str) -> List[dict]:
         """获取commit的详细diff"""
@@ -160,7 +161,7 @@ class GitLabCrawler:
         response = http_client.get(url, headers=self.headers)
         return response.json()
 
-    def parse_commit(self, project_id: str, commit: dict) -> List[CodeSnippet]:
+    def parse_commit(self, project_id: str, commit: dict) -> List[Optional[CodeSnippet]]:
         """解析commit生成代码片段"""
         bug_id = self._extract_bug_id(commit["title"] + " " + commit.get("message", ""))
         if not bug_id:
@@ -173,10 +174,11 @@ class GitLabCrawler:
             logger.debug(f"提交 {commit['id']} 未包含代码差异")
             return []
 
+        # 使用并发处理所有文件差异
         logger.debug(f"开始并发处理提交 {commit['id']} 的 {len(diffs)} 个文件差异")
         snippets = http_client.concurrent_map(
             lambda diff: self._process_diff(diff, bug_id, commit["id"], project_id),
-            diffs,
+            diffs
         )
         valid_snippets = [s for s in snippets if s is not None]
         logger.debug(

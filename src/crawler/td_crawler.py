@@ -1,33 +1,11 @@
-import re
 from src.utils.log import get_logger
-from dataclasses import dataclass
 from typing import List, Optional, Dict
+import re
 from src.config import config
 from src.utils.http_client import http_client
+from src.models.bug_models import BugReport
 
 logger = get_logger(__name__)
-
-
-@dataclass
-class IssueDetails:
-    bug_id: str
-    summary: str
-    severity: str
-    is_reappear: str
-    description: str
-    test_steps: str
-    expected_result: str
-    actual_result: str
-    log_info: str
-    environment: str
-    root_cause: Optional[str]
-    fix_solution: Optional[str]
-    related_issues: List[str]
-    fix_person: Optional[str]
-    create_at: str
-    fix_date: str
-    reopen_count: int
-    handlers: List[str]
 
 
 class TDCrawler:
@@ -36,16 +14,16 @@ class TDCrawler:
         self.headers_list = headers_list
         logger.info(f"初始化TD爬虫，配置了 {len(base_urls)} 个TD系统")
 
-    def get_bug_details_batch(self, bug_ids: List[str]) -> List[Optional[IssueDetails]]:
+    def get_bug_details_batch(self, bug_ids: List[str]) -> List[Optional[BugReport]]:
         """批量获取bug详情"""
         logger.info(f"开始批量获取 {len(bug_ids)} 个bug详情")
-        results = http_client.chunk_concurrent_map(
-            self._fetch_bug_details_batch, bug_ids
+        return http_client.chunk_concurrent_map(
+            self._fetch_bug_details_batch,
+            bug_ids,
+            chunk_size=5  # 每批5个bug
         )
-        logger.info(f"批量获取完成，成功获取 {len(results)} 个bug详情")
-        return results
 
-    def _fetch_bug_details_batch(self, bug_ids: List[str]) -> List[IssueDetails]:
+    def _fetch_bug_details_batch(self, bug_ids: List[str]) -> List[Optional[BugReport]]:
         """批量获取一组bug详情"""
         logger.debug(f"处理一批 {len(bug_ids)} 个bug ID")
         results = []
@@ -55,14 +33,13 @@ class TDCrawler:
                 if result:
                     results.append(result)
                     logger.debug(f"成功获取bug {bug_id} 的详情")
-                else:
-                    logger.warning(f"未找到bug {bug_id} 的详情")
             except Exception as e:
                 logger.error(f"获取bug {bug_id} 详情时发生错误: {str(e)}")
+                continue
         logger.debug(f"本批次完成，成功获取 {len(results)}/{len(bug_ids)} 个bug详情")
         return results
 
-    def get_bug_details(self, bug_id: str) -> Optional[IssueDetails]:
+    def get_bug_details(self, bug_id: str) -> Optional[BugReport]:
         """获取bug详情，遍历所有配置直到找到匹配的bug"""
         logger.debug(f"尝试获取bug {bug_id} 的详情")
         for idx, (base_url, headers) in enumerate(
@@ -84,7 +61,7 @@ class TDCrawler:
 
     def _fetch_bug_details(
         self, bug_id: str, base_url: str, headers: dict
-    ) -> Optional[IssueDetails]:
+    ) -> Optional[BugReport]:
         """从指定的TD系统获取bug详情"""
         url = f"{base_url}/api/v1/defect/by_key/{bug_id}?_t={self._get_timestamp()}"
 
@@ -102,9 +79,9 @@ class TDCrawler:
         desc_content = str(fields.get("desc", ""))
         comment_content = str(fields.get("comment", ""))
 
-        # 创建IssueDetails对象
+        # 创建BugReport对象
         try:
-            issue = IssueDetails(
+            bug_report = BugReport(
                 bug_id=str(data_data.get("key")),
                 summary=fields.get("summary", ""),
                 severity=fields.get("severity", {}).get("name", "P4"),
@@ -124,10 +101,10 @@ class TDCrawler:
                 create_at=fields.get("create_at", ""),
                 fix_date=fields.get("fix_date", ""),
                 reopen_count=fields.get("reopen_count", 0),
-                handlers=fields.get("handlers", []),
+                handlers=fields.get("handlers", [])
             )
             logger.debug(f"成功解析bug {bug_id} 的详情数据")
-            return issue
+            return bug_report
         except Exception as e:
             logger.error(f"解析bug {bug_id} 的详情数据时发生错误: {str(e)}")
             raise
