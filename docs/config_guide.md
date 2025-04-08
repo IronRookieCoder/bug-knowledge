@@ -60,6 +60,18 @@
 - `LOG_BACKUP_COUNT`: 日志文件备份数量
 - `LOG_FORMAT`: 日志格式
 
+### 调度配置
+- `SCHEDULE_TYPE`: 调度类型（daily/monthly/interval）
+  - daily: 每日执行，指定时间
+  - monthly: 每月执行，指定日期和时间
+  - interval: 间隔执行，指定小时数
+- `SCHEDULE_DAY`: 月度调度时的执行日期（1-31），仅在 monthly 模式下使用
+- `SCHEDULE_HOUR`: 执行时间（小时，0-23），在 daily 和 monthly 模式下使用
+- `SCHEDULE_MINUTE`: 执行时间（分钟，0-59），在 daily 和 monthly 模式下使用
+- `SCHEDULE_INTERVAL`: 间隔执行的小时数，仅在 interval 模式下使用
+
+注意：这些配置项可以通过命令行参数覆盖，优先级：命令行参数 > 环境变量 > 默认值
+
 ## 环境特定配置
 
 ### 开发环境（.env.development）

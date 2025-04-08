@@ -135,12 +135,70 @@ chmod +x setup        # 仅Linux环境需要
    conda env update -f environment.yml
    ```
 
-2. 重启服务
+2. 停止旧进程：
    ```bash
-   # 找到并关闭旧进程
-   ps aux | grep python
-   kill <pid>
-   
-   # 启动新进程（生产环境）
-   nohup python -m src --mode web --host 0.0.0.0 --port 8010 > nohup.out 2>&1 &
+   ./stop.sh
    ```
+
+3. 启动新进程：
+   ```bash
+   ./start.sh --mode all --host 0.0.0.0 --port 8010
+   ```
+
+## 进程管理
+
+### 启动服务
+支持多种运行模式和调度类型：
+
+1. 单次运行模式：
+```bash
+# Web服务
+./start.sh --mode web
+
+# 爬虫任务
+./start.sh --mode crawler
+
+# 全部任务
+./start.sh --mode all
+```
+
+2. 计划任务模式：
+```bash
+# 每日执行（默认凌晨2点）
+./start.sh --mode all --schedule
+
+# 指定执行时间
+./start.sh --mode all --schedule --hour 3 --minute 30
+
+# 每月执行（每月1号凌晨2点）
+./start.sh --mode all --schedule --schedule-type monthly --day 1
+
+# 自定义每月执行时间
+./start.sh --mode all --schedule --schedule-type monthly --day 15 --hour 4 --minute 30
+
+# 间隔执行（每12小时）
+./start.sh --mode all --schedule --schedule-type interval --interval 12
+```
+
+### 停止服务
+使用 stop.sh 脚本管理进程：
+```bash
+# 优雅停止（发送SIGTERM信号）
+./stop.sh
+
+# 强制停止（发送SIGKILL信号）
+./stop.sh -f
+
+# 停止并清理临时文件
+./stop.sh -c
+```
+
+### 注意事项
+1. 调度任务冲突预防
+   - 系统会检查是否有其他任务正在运行
+   - 如果检测到运行中的任务，新任务会自动跳过
+
+2. 调度模式限制
+   - interval 模式不能与 hour/minute 参数同时使用
+   - monthly 模式需要指定有效的日期（1-31）
+   - daily 模式不能指定日期参数

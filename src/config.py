@@ -234,6 +234,33 @@ class Config:
             error_messages = "\n".join(f"{e.key}: {e.message}" for e in errors)
             raise ValueError(f"配置验证失败:\n{error_messages}")
 
+    def update_config(self, key: str, value: Any, validate: bool = True) -> None:
+        """
+        更新配置项
+        
+        Args:
+            key: 配置项键名
+            value: 配置项的新值
+            validate: 是否在更新后进行配置验证，默认为True
+            
+        Raises:
+            ValueError: 当validate=True且更新后的配置验证失败时抛出
+        """
+        if '.' in key:
+            # 处理嵌套配置，如 "WEB.host"
+            parts = key.split('.')
+            config = self._config
+            for part in parts[:-1]:
+                if part not in config:
+                    config[part] = {}
+                config = config[part]
+            config[parts[-1]] = value
+        else:
+            self._config[key] = value
+
+        if validate:
+            self._validate_config()
+
     def get_required(self, key: str) -> Any:
         """获取必需的配置项，如果不存在则抛出异常"""
         value = self._config.get(key)
