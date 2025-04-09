@@ -147,14 +147,17 @@ class GitLabCrawler:
         logger.debug(f"时间参数 - since_date: {self.since_date}, until_date: {self.until_date}")
         
         # 处理时间范围参数
-        time_range_desc = "所有时间"
+        time_range_desc = "最近30天"  # 默认显示最近30天，而不是"所有时间"
         if self.since_date:
             params["since"] = self.since_date
-            time_range_desc = f"{self.since_date}"
+            time_range_desc = f"从 {self.since_date} 开始"
             
         if self.until_date:
             params["until"] = self.until_date
-            time_range_desc = f"{time_range_desc} - {self.until_date}" if self.since_date else f"截止到 {self.until_date}"
+            if self.since_date:
+                time_range_desc = f"{self.since_date} 至 {self.until_date}"
+            else:
+                time_range_desc = f"截止到 {self.until_date}"
 
         logger.info(f"开始获取项目 {project_id} 的提交记录，时间范围: {time_range_desc}")
 

@@ -7,6 +7,7 @@ from src.utils.log import get_logger
 from src.utils.http_client import http_client
 from typing import List, Dict, Optional
 from collections import defaultdict
+from datetime import datetime, timedelta
 
 logger = get_logger(__name__)
 
@@ -18,9 +19,22 @@ def get_gitlab_snippets(gl_configs):
         try:
             logger.info(f"开始从GitLab配置 {gl_config.url} 获取代码片段")
             
-            # 获取时间配置并打印
+            # 获取时间配置
+            default_days = config.get("DEFAULT_DAYS", 30)
+            until_date = config.get("GITLAB_UNTIL_DATE") or datetime.now().strftime("%Y-%m-%d")
             since_date = config.get("GITLAB_SINCE_DATE")
-            until_date = config.get("GITLAB_UNTIL_DATE")
+            
+            if not since_date:
+                # 如果没有配置since_date，使用until_date减去DEFAULT_DAYS
+                try:
+                    until_datetime = datetime.strptime(until_date, "%Y-%m-%d")
+                    since_datetime = until_datetime - timedelta(days=default_days)
+                    since_date = since_datetime.strftime("%Y-%m-%d")
+                except ValueError as e:
+                    logger.error(f"处理日期时发生错误: {str(e)}")
+                    since_date = (datetime.now() - timedelta(days=default_days)).strftime("%Y-%m-%d")
+            
+            logger.info(f"使用时间范围: {since_date} 至 {until_date}")
             
             gl_crawler = GitLabCrawler(
                 gl_config.url,
