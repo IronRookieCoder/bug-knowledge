@@ -117,6 +117,10 @@ class GitLabCrawler:
 
     def get_commits(self, project_id: str) -> List[dict]:
         """获取单个项目的commit列表，使用分页"""
+        if not project_id or not isinstance(project_id, str):
+            logger.error(f"无效的project_id: {project_id}")
+            return []
+            
         url = f"{self.base_url}/api/v4/projects/{project_id}/repository/commits"
         params = {"per_page": 100, "page": 1}  # 每页获取100个commit
 
@@ -133,29 +137,50 @@ class GitLabCrawler:
         try:
             while True:
                 response = http_client.get(url, headers=self.headers, params=params)
-                commits = response.json()
+                commits_data = response.json()
                 
                 # 检查返回的数据是否为列表类型
-                if not isinstance(commits, list):
-                    logger.error(f"项目 {project_id} 返回的提交数据格式错误: {commits}")
+                if not isinstance(commits_data, list):
+                    logger.error(f"项目 {project_id} 返回的提交数据格式错误: {commits_data}")
                     break
                     
-                if not commits:
+                if not commits_data:
+                    logger.debug(f"项目 {project_id} 第 {params['page']} 页没有更多提交")
                     break
                     
-                # 确保每个commit都是字典类型
+                # 确保每个commit都是字典类型且包含必要字段
                 valid_commits = []
-                for commit in commits:
-                    if isinstance(commit, dict):
-                        commit["project_id"] = project_id
-                        valid_commits.append(commit)
-                    else:
-                        logger.warning(f"项目 {project_id} 的提交数据格式错误: {commit}")
+                for commit in commits_data:
+                    if not isinstance(commit, dict):
+                        logger.warning(f"项目 {project_id} 的提交数据格式错误: {type(commit)}")
+                        continue
+                        
+                    # 检查必须的字段
+                    if "id" not in commit:
+                        logger.warning(f"项目 {project_id} 的提交缺少id字段")
+                        continue
+                        
+                    # 添加project_id字段
+                    commit_copy = commit.copy()  # 创建副本，避免修改原始数据
+                    commit_copy["project_id"] = project_id
+                    
+                    # 确保message字段存在
+                    if "message" not in commit_copy or not commit_copy["message"]:
+                        commit_copy["message"] = ""
+                        logger.debug(f"项目 {project_id} 的提交 {commit_copy['id']} 缺少message字段，设置为空字符串")
+                    
+                    valid_commits.append(commit_copy)
                         
                 all_commits.extend(valid_commits)
                 logger.debug(
                     f"项目 {project_id} 第 {params['page']} 页获取到 {len(valid_commits)} 个有效提交"
                 )
+                
+                # 如果这一页的数据少于每页数量，说明已经到最后一页
+                if len(commits_data) < params["per_page"]:
+                    logger.debug(f"项目 {project_id} 已获取完所有提交")
+                    break
+                    
                 params["page"] += 1
 
         except requests.exceptions.RequestException as e:
@@ -171,9 +196,30 @@ class GitLabCrawler:
     def get_commits_for_all_projects(self) -> List[dict]:
         """并发获取所有项目的commits"""
         logger.info(f"开始获取所有项目的提交记录，共 {len(self.project_ids)} 个项目")
-        all_commits = http_client.concurrent_map(self.get_commits, self.project_ids)
-        flattened_commits = [commit for sublist in all_commits if sublist for commit in sublist]
-        logger.info(f"所有项目提交获取完成，共获取到 {len(flattened_commits)} 个提交")
+        all_commits_result = http_client.concurrent_map(self.get_commits, self.project_ids)
+        
+        # 确保每个结果都是列表类型
+        validated_results = []
+        for result in all_commits_result:
+            if not result:
+                continue
+                
+            if not isinstance(result, list):
+                logger.warning(f"获取到非列表类型的commits结果: {type(result)}")
+                continue
+                
+            validated_results.append(result)
+        
+        # 检查每个元素是否为字典类型
+        flattened_commits = []
+        for sublist in validated_results:
+            for commit in sublist:
+                if isinstance(commit, dict) and "id" in commit and "project_id" in commit:
+                    flattened_commits.append(commit)
+                else:
+                    logger.warning(f"跳过无效的commit数据: {type(commit)}")
+        
+        logger.info(f"所有项目提交获取完成，共获取到 {len(flattened_commits)} 个有效提交")
         return flattened_commits
 
     def get_commit_diff(self, project_id: str, commit_sha: str) -> List[dict]:
@@ -185,42 +231,59 @@ class GitLabCrawler:
 
     def parse_commit(self, project_id: str, commit: Dict) -> List[CodeSnippet]:
         """解析提交信息，获取代码片段"""
+        commit_id = commit.get("id", "未知") if isinstance(commit, dict) else "无效"
+        logger.debug(f"开始解析提交 {commit_id} (项目 {project_id})")
+        
         try:
             # 类型检查
             if not isinstance(commit, dict):
-                logger.error(f"无效的commit类型: {type(commit)}, 值: {commit}")
+                logger.error(f"无效的commit类型: {type(commit)}")
                 return []
                 
             # 确保project_id有效
             if not project_id or not isinstance(project_id, str):
-                logger.error(f"无效的project_id: {project_id}")
+                logger.error(f"无效的project_id: {project_id} (提交 {commit_id})")
                 return []
                 
             # 提取bug ID，确保是字符串类型
             commit_message = commit.get("message", "")
             if not isinstance(commit_message, str):
-                logger.warning(f"Commit message不是字符串类型: {type(commit_message)}")
+                logger.warning(f"提交 {commit_id} 的message不是字符串类型: {type(commit_message)}")
                 commit_message = str(commit_message) if commit_message else ""
                 
             bug_id = self._extract_bug_id(commit_message)
             if not bug_id:
+                logger.debug(f"提交 {commit_id} 未找到匹配的bug ID")
                 return []
+                
             bug_id = str(bug_id)  # 确保是字符串类型
+            logger.debug(f"提交 {commit_id} 解析到bug ID: {bug_id}")
 
             commit_sha = commit.get("id", "")
             if not commit_sha:
+                logger.warning(f"提交缺少id字段 (项目 {project_id})")
                 return []
+                
             commit_sha = str(commit_sha)  # 确保是字符串类型
 
             # 获取代码差异
-            diff_response = self.get_commit_diff(project_id, commit_sha)
+            logger.debug(f"获取提交 {commit_sha} 的代码差异")
+            try:
+                diff_response = self.get_commit_diff(project_id, commit_sha)
+            except Exception as e:
+                logger.error(f"获取提交 {commit_sha} 的差异信息失败: {str(e)}")
+                return []
+                
             if not diff_response or not isinstance(diff_response, list):
+                logger.warning(f"提交 {commit_sha} 的差异信息无效: {type(diff_response)}")
                 return []
 
             code_snippets = []
-            for diff in diff_response:
+            logger.debug(f"提交 {commit_sha} 包含 {len(diff_response)} 个文件变更")
+            
+            for diff_idx, diff in enumerate(diff_response):
                 if not isinstance(diff, dict):
-                    logger.warning(f"跳过非字典类型的diff: {type(diff)}")
+                    logger.warning(f"提交 {commit_sha} 的第 {diff_idx+1} 个差异不是字典类型: {type(diff)}")
                     continue
                     
                 try:
@@ -228,14 +291,19 @@ class GitLabCrawler:
                     old_path = diff.get("old_path", "")
                     file_path = str(new_path or old_path)
                     if not file_path:
+                        logger.debug(f"提交 {commit_sha} 的第 {diff_idx+1} 个差异缺少路径信息")
                         continue
 
                     # 获取文件语言
                     lang = self._get_file_language(file_path)
+                    if lang == "unknown":
+                        logger.debug(f"提交 {commit_sha} 的文件 {file_path} 类型未识别，跳过")
+                        continue
                     
                     # 获取diff文本
                     diff_text = diff.get("diff", "")
                     if not diff_text:
+                        logger.debug(f"提交 {commit_sha} 的文件 {file_path} 没有实际的代码差异")
                         continue
 
                     # 创建CodeSnippet对象，确保所有字段都是正确的类型
@@ -248,13 +316,15 @@ class GitLabCrawler:
                         project_id=str(project_id)
                     )
                     code_snippets.append(snippet)
+                    logger.debug(f"成功创建代码片段: {file_path} (bug {bug_id})")
                 except Exception as e:
-                    logger.error(f"处理diff时发生错误: {str(e)}, diff: {diff}")
+                    logger.error(f"处理提交 {commit_sha} 的差异时发生错误: {str(e)}", exc_info=True)
                     continue
 
+            logger.info(f"提交 {commit_sha} 共解析出 {len(code_snippets)} 个代码片段")
             return code_snippets
         except Exception as e:
-            logger.error(f"解析commit时发生错误: {str(e)}, commit: {commit}")
+            logger.error(f"解析提交 {commit_id} 时发生错误: {str(e)}", exc_info=True)
             return []
 
     def _process_diff(

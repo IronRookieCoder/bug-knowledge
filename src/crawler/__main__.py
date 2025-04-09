@@ -35,11 +35,30 @@ def get_gitlab_snippets(gl_configs):
             # 确保传入的是完整的commit字典，而不是键
             filtered_commits = []
             for commit in commits:
-                if isinstance(commit, dict) and commit.get("project_id"):
-                    filtered_commits.append(commit)
-                else:
-                    logger.warning(f"跳过无效的commit数据: {commit}")
+                # 检查是否为字典类型且包含必要的字段
+                if not isinstance(commit, dict):
+                    logger.warning(f"跳过非字典类型的commit数据: {type(commit)}")
+                    continue
                     
+                # 检查是否包含project_id字段
+                if not commit.get("project_id"):
+                    # 判断是否只是键名列表而不是完整的commit对象
+                    if isinstance(commit, str) and commit in ["id", "title", "message", "project_id"]:
+                        logger.warning(f"跳过无效的commit数据(仅键名): {commit}")
+                        continue
+                    logger.warning(f"跳过缺少project_id的commit: {commit.get('id', 'unknown')}")
+                    continue
+                    
+                # 检查commit是否包含id字段
+                if not commit.get("id"):
+                    logger.warning(f"跳过缺少id的commit, project_id: {commit.get('project_id')}")
+                    continue
+                    
+                # 通过检查，添加到过滤后的列表
+                filtered_commits.append(commit)
+                    
+            logger.info(f"过滤后共有 {len(filtered_commits)}/{len(commits)} 个有效commit")
+            
             snippets = http_client.concurrent_map(
                 lambda commit: gl_crawler.parse_commit(
                     commit.get("project_id"), commit

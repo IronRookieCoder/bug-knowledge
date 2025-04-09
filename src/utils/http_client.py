@@ -161,40 +161,54 @@ class HttpClient:
             futures = {}
             for item in items:
                 try:
-                    # 跳过无效的项目类型
-                    if isinstance(item, str) and len(item) < 100:  # 避免处理可能是键的短字符串
-                        logger.warning(f"跳过字符串类型项目: {item}")
-                        continue
-                        
+                    # 优化项目处理逻辑
+                    processed_item = None
+                    
                     # 如果是字典类型且不是None，进行深拷贝
                     if isinstance(item, dict) and item is not None:
-                        processed_item = json.loads(json.dumps(item))  # 深拷贝字典
+                        # 使用深拷贝确保不会修改原始对象
+                        try:
+                            processed_item = json.loads(json.dumps(item))
+                        except (TypeError, json.JSONDecodeError) as e:
+                            logger.warning(f"无法深拷贝字典项目: {e}")
+                            # 备选方案：使用浅拷贝
+                            processed_item = item.copy()
+                    
                     # 如果是其他可变类型（如列表、集合），使用浅拷贝
-                    elif hasattr(item, '__iter__') and not isinstance(item, (str, bytes)):
-                        processed_item = item.copy()
+                    elif isinstance(item, list) or isinstance(item, set) or isinstance(item, tuple):
+                        processed_item = list(item) if isinstance(item, (list, tuple)) else set(item)
+                    
+                    # 字符串或不可变类型，直接使用
                     else:
                         processed_item = item
                         
                     futures[executor.submit(func, processed_item, *args, **kwargs)] = processed_item
                 except Exception as e:
-                    logger.error(f"创建任务时发生错误: {str(e)}, 项目类型: {type(item)}, 项目值: {item}")
+                    logger.error(f"创建任务时发生错误: {str(e)}, 项目类型: {type(item)}, 项目值: {repr(item)[:100]}")
                     continue
 
             for future in concurrent.futures.as_completed(futures):
                 item = futures[future]
                 try:
                     result = future.result()
+                    
+                    # 改进结果处理逻辑
                     if result is not None:
-                        # 处理返回结果
-                        if isinstance(result, (list, tuple, set)):
+                        if isinstance(result, (list, tuple)):
+                            # 展平列表结果
                             results.extend(list(result))
-                        else:
+                        elif isinstance(result, dict):
+                            # 将字典作为一个整体添加到结果中
                             results.append(result)
+                        else:
+                            # 其他类型直接添加
+                            results.append(result)
+                    
                     completed += 1
                     if completed % 10 == 0 or completed == total_items:
                         logger.debug(f"任务进度: {completed}/{total_items} ({completed/total_items*100:.1f}%)")
                 except Exception as e:
-                    logger.error(f"处理项目时发生错误: {str(e)}, 项目类型: {type(item)}, 项目值: {repr(item)}")
+                    logger.error(f"处理项目时发生错误: {str(e)}, 项目类型: {type(item)}")
                     continue
 
         duration = time.time() - start_time
