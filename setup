@@ -3,9 +3,15 @@
 # 错误处理
 set -e
 
+# 通用变量
 ENV_NAME="bug-knowledge"
 PYTHON_CMD="python"
 PYTHON_MIN_VERSION="3.8"
+
+# 判断操作系统类型
+is_windows() {
+    [[ "$OSTYPE" == "msys"* ]] || [[ "$OSTYPE" == "cygwin"* ]] || [[ "$OSTYPE" == "win"* ]]
+}
 
 # 检查Python版本
 check_python_version() {
@@ -23,38 +29,52 @@ check_python_version() {
 
 # 清理现有环境
 clean_environment() {
-    echo "Cleaning existing environment..."
-    
     # 检查是否在conda环境中
     if [[ -n "$CONDA_PREFIX" ]]; then
-        if [[ "$OSTYPE" == "msys"* ]] || [[ "$OSTYPE" == "cygwin"* ]] || [[ "$OSTYPE" == "win"* ]]; then
+        if is_windows; then
             cmd //c "conda deactivate"
         else
             conda deactivate
         fi
-    fi
 
-    # 检查是否在venv环境中
-    if [[ -n "$VIRTUAL_ENV" ]]; then
-        deactivate 2>/dev/null || true
-    fi
-
-    # 删除旧的venv目录
-    if [ -d ".venv" ]; then
-        echo "Removing existing venv directory..."
-        rm -rf .venv
-    fi
-
-    # 如果存在conda环境，删除它
-    if command -v conda &> /dev/null; then
-        if conda env list | grep -q "$ENV_NAME"; then
+        # 如果存在conda环境，删除它
+        if command -v conda &> /dev/null && conda env list | grep -q "$ENV_NAME"; then
             echo "Removing existing conda environment..."
-            if [[ "$OSTYPE" == "msys"* ]] || [[ "$OSTYPE" == "cygwin"* ]] || [[ "$OSTYPE" == "win"* ]]; then
+            if is_windows; then
                 cmd //c "conda env remove -n $ENV_NAME -y"
             else
                 conda env remove -n $ENV_NAME -y
             fi
         fi
+    fi
+
+    # 检查是否在venv环境中并退出
+    if [[ -n "$VIRTUAL_ENV" ]]; then
+        deactivate 2>/dev/null || true
+    fi
+}
+
+# 检查并激活环境
+activate_environment() {
+    if command -v conda &> /dev/null; then
+        # 尝试激活conda环境
+        if ! conda activate $ENV_NAME 2>/dev/null; then
+            echo "Error: $ENV_NAME conda environment not found. Please run ./setup first"
+            exit 1
+        fi
+    else
+        # 尝试激活venv环境
+        if is_windows; then
+            VENV_ACTIVATE=".venv/Scripts/activate"
+        else
+            VENV_ACTIVATE=".venv/bin/activate"
+        fi
+
+        if [ ! -f "$VENV_ACTIVATE" ]; then
+            echo "Error: Python virtual environment not found. Please run ./setup first"
+            exit 1
+        fi
+        source "$VENV_ACTIVATE"
     fi
 }
 
@@ -62,20 +82,24 @@ clean_environment() {
 setup_with_venv() {
     echo "Setting up with Python venv..."
     
-    # Windows环境
-    if [[ "$OSTYPE" == "msys"* ]] || [[ "$OSTYPE" == "cygwin"* ]] || [[ "$OSTYPE" == "win"* ]]; then
-        $PYTHON_CMD -m venv .venv
+    # 如果venv不存在才创建新环境
+    if [ ! -d ".venv" ]; then
+        if is_windows; then
+            $PYTHON_CMD -m venv .venv
+        else
+            $PYTHON_CMD -m venv .venv
+        fi
+    fi
+    
+    # 激活环境
+    if is_windows; then
         source .venv/Scripts/activate
     else
-        # Linux/Unix环境
-        $PYTHON_CMD -m venv .venv
         source .venv/bin/activate
     fi
     
-    # 升级pip
     python -m pip install --upgrade pip
     
-    # 从requirements.txt安装依赖
     if [ -f "requirements.txt" ]; then
         pip install -r requirements.txt
     else
@@ -83,7 +107,7 @@ setup_with_venv() {
     fi
     
     echo "Python venv setup complete!"
-    if [[ "$OSTYPE" == "msys"* ]] || [[ "$OSTYPE" == "cygwin"* ]] || [[ "$OSTYPE" == "win"* ]]; then
+    if is_windows; then
         echo "To activate the environment, run: source .venv/Scripts/activate"
     else
         echo "To activate the environment, run: source .venv/bin/activate"
@@ -94,8 +118,7 @@ setup_with_venv() {
 setup_with_conda() {
     echo "Setting up with conda..."
     
-    # Windows环境（Git Bash、Cygwin 或 MSYS）
-    if [[ "$OSTYPE" == "msys"* ]] || [[ "$OSTYPE" == "cygwin"* ]] || [[ "$OSTYPE" == "win"* ]]; then
+    if is_windows; then
         echo "Windows environment detected"
         cmd //c "conda env create -f environment.yml"
         cmd //c "conda activate $ENV_NAME"

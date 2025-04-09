@@ -67,16 +67,30 @@ class Config:
         self._load_model_config()
         self._load_gitlab_configs()
         self._load_td_configs()
+        self._load_scheduler_config()
 
     def _load_app_config(self) -> None:
         """加载应用配置"""
         self._config["DEBUG"] = os.getenv("DEBUG", "False").lower() == "true"
         self._config["APP_NAME"] = os.getenv("APP_NAME", "bug-knowledge")
         self._config["APP_PORT"] = int(os.getenv("APP_PORT", "5000"))
+        self._config["PYTHON_ENV"] = os.getenv("PYTHON_ENV", "development")
+        
+        # 添加临时目录配置
+        temp_dir = os.getenv("BUG_KNOWLEDGE_TEMP_DIR")
+        if not temp_dir:
+            import tempfile
+            temp_dir = os.path.join(tempfile.gettempdir(), "bug_knowledge")
+        self._config["TEMP_DIR"] = temp_dir
+        
+        # 确保临时目录存在
+        Path(temp_dir).mkdir(parents=True, exist_ok=True)
 
     def _load_database_config(self) -> None:
         """加载数据库配置"""
-        self._config["DATABASE_PATH"] = os.getenv("DATABASE_PATH", "data/bugs.db")
+        self._config["DATABASE"] = {
+            "path": os.getenv("DATABASE_PATH", "data/bugs.db")
+        }
 
     def _load_crawler_config(self) -> None:
         """加载爬虫配置"""
@@ -100,10 +114,8 @@ class Config:
         # TD系统配置
         self._config["TD_URLS"] = os.getenv("TD_URLS", "").split("|")
         self._config["TD_COOKIES"] = os.getenv("TD_COOKIES", "").split("|")
-        self._config["PRODUCT_IDS"] = [
-            ids.split(",") for ids in os.getenv("PRODUCT_IDS", "").split("|")
-        ]
-        self._config["TD_AREAS"] = os.getenv("TD_AREA", "").split("|")
+        self._config["TD_AREAS"] = os.getenv("TD_AREAS", "").split("|")
+        self._config["PRODUCT_IDS"] = os.getenv("PRODUCT_IDS", "").split("|")
 
     def _load_vector_store_config(self) -> None:
         """加载向量存储配置"""
@@ -111,10 +123,11 @@ class Config:
             "data_dir": os.getenv("VECTOR_STORE_DIR", "data/annoy"),
             "vector_dim": int(os.getenv("VECTOR_DIM", "384")),
             "index_type": os.getenv("INDEX_TYPE", "angular"),
-            "n_trees": int(os.getenv("N_TREES", "100")),  # 增加树的数量以提高准确性
-            "similarity_threshold": float(
-                os.getenv("SIMILARITY_THRESHOLD", "1.2")
-            ),  # 调整阈值
+            "n_trees": int(os.getenv("N_TREES", "10")),
+            "similarity_threshold": float(os.getenv("SIMILARITY_THRESHOLD", "1.2")),
+            # 添加重试配置
+            "max_retries": int(os.getenv("VECTOR_STORE_MAX_RETRIES", "3")),
+            "retry_delay": float(os.getenv("VECTOR_STORE_RETRY_DELAY", "0.5"))
         }
 
     def _load_web_config(self) -> None:
@@ -131,10 +144,11 @@ class Config:
         self._config["LOG"] = {
             "level": os.getenv("LOG_LEVEL", "INFO"),
             "file": os.getenv("LOG_FILE", "logs/bug_knowledge.log"),
-            "max_size": int(os.getenv("LOG_MAX_SIZE", 10 * 1024 * 1024)),  # 默认10MB
-            "backup_count": int(os.getenv("LOG_BACKUP_COUNT", 5)),
+            "max_size": int(os.getenv("LOG_MAX_SIZE", str(10 * 1024 * 1024))),  # 默认10MB
+            "backup_count": int(os.getenv("LOG_BACKUP_COUNT", "5")),
             "format": os.getenv(
-                "LOG_FORMAT", "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+                "LOG_FORMAT",
+                "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
             ),
         }
 
@@ -144,90 +158,199 @@ class Config:
 
     def _load_model_config(self) -> None:
         """加载模型配置"""
+        model_name = os.getenv("MODEL_NAME", "all-MiniLM-L6-v2")
         self._config["MODEL"] = {
-            "name": os.getenv("MODEL_NAME", "all-MiniLM-L6-v2"),
+            "name": model_name,
+            "path": os.getenv("MODEL_PATH", f"./lm-models/{model_name}"),
             "cache_dir": os.getenv("MODEL_CACHE_DIR", "lm-models"),
             "offline": os.getenv("MODEL_OFFLINE", "True").lower() == "true",
         }
+        
+        # 确保模型目录存在
+        model_dir = Path(self._config["MODEL"]["path"])
+        if not model_dir.exists() and self._config["MODEL"]["offline"]:
+            raise ValueError(f"离线模式下模型目录不存在: {model_dir}")
 
     def _load_gitlab_configs(self) -> None:
-        """加载GitLab配置"""
-        gitlab_config_str = os.getenv("GITLAB_CONFIGS", "[]")
-        try:
-            gitlab_configs = json.loads(gitlab_config_str)
-            self._config["GITLAB"] = [
-                GitLabConfig(
-                    url=config["url"],
-                    token=config["token"],
-                    project_ids=config["project_ids"],
-                )
-                for config in gitlab_configs
-            ]
-        except json.JSONDecodeError:
-            self._config["GITLAB"] = []
+        """加载GitLab配置
+        从GITLAB_URLS、GITLAB_TOKENS和GITLAB_PROJECT_IDS环境变量构建配置
+        """
+        gitlab_urls = self._config.get("GITLAB_URLS", [])
+        gitlab_tokens = self._config.get("GITLAB_TOKENS", [])
+        gitlab_project_ids = self._config.get("GITLAB_PROJECT_IDS", [])
+
+        # 确保所有列表长度一致
+        min_length = min(len(gitlab_urls), len(gitlab_tokens), len(gitlab_project_ids))
+        
+        # 构建GitLab配置列表
+        self._config["GITLAB"] = [
+            GitLabConfig(
+                url=gitlab_urls[i],
+                token=gitlab_tokens[i],
+                project_ids=gitlab_project_ids[i]
+            )
+            for i in range(min_length)
+            if gitlab_urls[i] and gitlab_tokens[i] and gitlab_project_ids[i]
+        ]
 
     def _load_td_configs(self) -> None:
-        """加载TD配置"""
-        td_config_str = os.getenv("TD_CONFIGS", "[]")
-        try:
-            td_configs = json.loads(td_config_str)
-            self._config["TD"] = [
-                TDConfig(url=config["url"], headers=config["headers"])
-                for config in td_configs
-            ]
-        except json.JSONDecodeError:
-            self._config["TD"] = []
+        """加载TD配置
+        从TD_URLS和TD_COOKIES环境变量构建配置
+        """
+        td_urls = self._config.get("TD_URLS", [])
+        td_cookies = self._config.get("TD_COOKIES", [])
+        td_areas = self._config.get("TD_AREAS", [])
+        product_ids = self._config.get("PRODUCT_IDS", [])
+
+        # 确保所有列表长度一致
+        min_length = min(len(td_urls), len(td_cookies))
+        
+        # 构建TD配置列表
+        self._config["TD"] = [
+            TDConfig(
+                url=td_urls[i],
+                headers={
+                    "Cookie": td_cookies[i],
+                    "Area": td_areas[i] if i < len(td_areas) else "",
+                    "ProductID": product_ids[i] if i < len(product_ids) else ""
+                }
+            )
+            for i in range(min_length)
+            if td_urls[i] and td_cookies[i]
+        ]
+
+    def _load_scheduler_config(self) -> None:
+        """加载调度配置"""
+        self._config["SCHEDULER"] = {
+            "type": os.getenv("SCHEDULE_TYPE", "daily"),  # daily, monthly, interval
+            "day": int(os.getenv("SCHEDULE_DAY", "1")),  # 1-31
+            "hour": int(os.getenv("SCHEDULE_HOUR", "2")),  # 0-23
+            "minute": int(os.getenv("SCHEDULE_MINUTE", "0")),  # 0-59
+            "interval_hours": int(os.getenv("SCHEDULE_INTERVAL", "24")),  # 间隔小时数
+        }
 
     def _validate_config(self) -> None:
         """验证配置有效性"""
         errors: List[ConfigValidationError] = []
 
-        # 验证必需的配置项
-        required_configs = [
-            ("DATABASE_PATH", "数据库路径不能为空"),
-            ("APP_PORT", "应用端口必须设置"),
-        ]
+        # 基础配置验证
+        if not self._config.get("APP_NAME"):
+            errors.append(ConfigValidationError("APP_NAME", "应用名称不能为空"))
 
-        for key, message in required_configs:
-            if not self._config.get(key):
-                errors.append(ConfigValidationError(key, message))
+        # 数据库配置验证
+        db_path = Path(self._config["DATABASE"]["path"])
+        if not db_path.parent.exists():
+            errors.append(ConfigValidationError(
+                "DATABASE.path",
+                f"数据库目录不存在: {db_path.parent}"
+            ))
 
-        # 验证端口范围
-        try:
-            port = int(self._config.get("APP_PORT", 0))
-            if not (1024 <= port <= 65535):
-                errors.append(
-                    ConfigValidationError("APP_PORT", "端口必须在1024-65535之间")
-                )
-        except ValueError:
-            errors.append(ConfigValidationError("APP_PORT", "端口必须是有效的数字"))
-
-        # 验证路径存在性
-        database_dir = Path(self._config.get("DATABASE_PATH", "")).parent
-        if not database_dir.exists():
-            database_dir.mkdir(parents=True, exist_ok=True)
-
-        # 验证向量存储配置
-        vector_store = self._config.get("VECTOR_STORE", {})
-        if not vector_store.get("data_dir"):
-            errors.append(
-                ConfigValidationError("VECTOR_STORE.data_dir", "向量存储目录不能为空")
-            )
-        if not vector_store.get("vector_dim"):
-            errors.append(
-                ConfigValidationError("VECTOR_STORE.vector_dim", "向量维度必须设置")
-            )
-
-        # 验证Web配置
+        # Web配置验证
         web_config = self._config.get("WEB", {})
         if not web_config.get("templates_dir"):
-            errors.append(
-                ConfigValidationError("WEB.templates_dir", "模板目录不能为空")
-            )
+            errors.append(ConfigValidationError("WEB.templates_dir", "模板目录不能为空"))
         if not web_config.get("static_dir"):
-            errors.append(
-                ConfigValidationError("WEB.static_dir", "静态文件目录不能为空")
-            )
+            errors.append(ConfigValidationError("WEB.static_dir", "静态文件目录不能为空"))
+        
+        try:
+            port = int(web_config.get("port", 0))
+            if not (1024 <= port <= 65535):
+                errors.append(ConfigValidationError("WEB.port", "端口必须在1024-65535之间"))
+        except ValueError:
+            errors.append(ConfigValidationError("WEB.port", "端口必须是有效的数字"))
+
+        # 向量存储配置验证
+        vector_store = self._config.get("VECTOR_STORE", {})
+        if not vector_store.get("data_dir"):
+            errors.append(ConfigValidationError("VECTOR_STORE.data_dir", "向量存储目录不能为空"))
+        
+        try:
+            vector_dim = int(vector_store.get("vector_dim", 0))
+            if vector_dim <= 0:
+                errors.append(ConfigValidationError("VECTOR_STORE.vector_dim", "向量维度必须大于0"))
+        except ValueError:
+            errors.append(ConfigValidationError("VECTOR_STORE.vector_dim", "向量维度必须是有效的整数"))
+
+        try:
+            n_trees = int(vector_store.get("n_trees", 0))
+            if n_trees <= 0:
+                errors.append(ConfigValidationError("VECTOR_STORE.n_trees", "n_trees必须大于0"))
+        except ValueError:
+            errors.append(ConfigValidationError("VECTOR_STORE.n_trees", "n_trees必须是有效的整数"))
+
+        try:
+            threshold = float(vector_store.get("similarity_threshold", 0))
+            if threshold <= 0:
+                errors.append(ConfigValidationError(
+                    "VECTOR_STORE.similarity_threshold",
+                    "相似度阈值必须大于0"
+                ))
+        except ValueError:
+            errors.append(ConfigValidationError(
+                "VECTOR_STORE.similarity_threshold",
+                "相似度阈值必须是有效的数字"
+            ))
+
+        # GitLab配置验证
+        gitlab_urls = self._config.get("GITLAB_URLS", [])
+        gitlab_tokens = self._config.get("GITLAB_TOKENS", [])
+        gitlab_project_ids = self._config.get("GITLAB_PROJECT_IDS", [])
+        
+        if len(set([len(gitlab_urls), len(gitlab_tokens), len(gitlab_project_ids)])) > 1:
+            errors.append(ConfigValidationError(
+                "GITLAB",
+                "GITLAB_URLS、GITLAB_TOKENS和GITLAB_PROJECT_IDS的数量必须一致"
+            ))
+
+        # TD配置验证
+        td_urls = self._config.get("TD_URLS", [])
+        td_cookies = self._config.get("TD_COOKIES", [])
+        td_areas = self._config.get("TD_AREAS", [])
+        product_ids = self._config.get("PRODUCT_IDS", [])
+
+        if not td_urls or not td_cookies:
+            errors.append(ConfigValidationError("TD", "TD_URLS和TD_COOKIES不能为空"))
+        
+        if len(td_urls) != len(td_cookies):
+            errors.append(ConfigValidationError(
+                "TD",
+                "TD_URLS和TD_COOKIES的数量必须一致"
+            ))
+
+        # 调度配置验证
+        scheduler = self._config.get("SCHEDULER", {})
+        schedule_type = scheduler.get("type", "")
+        if schedule_type not in ["daily", "monthly", "interval"]:
+            errors.append(ConfigValidationError(
+                "SCHEDULER.type",
+                "调度类型必须是 daily、monthly 或 interval"
+            ))
+
+        try:
+            day = int(scheduler.get("day", 1))
+            if not (1 <= day <= 31):
+                errors.append(ConfigValidationError(
+                    "SCHEDULER.day",
+                    "调度日期必须在1-31之间"
+                ))
+        except ValueError:
+            errors.append(ConfigValidationError(
+                "SCHEDULER.day",
+                "调度日期必须是有效的整数"
+            ))
+
+        try:
+            hour = int(scheduler.get("hour", 0))
+            if not (0 <= hour <= 23):
+                errors.append(ConfigValidationError(
+                    "SCHEDULER.hour",
+                    "调度小时必须在0-23之间"
+                ))
+        except ValueError:
+            errors.append(ConfigValidationError(
+                "SCHEDULER.hour",
+                "调度小时必须是有效的整数"
+            ))
 
         # 如果有错误，抛出异常
         if errors:
@@ -303,7 +426,7 @@ class Config:
 
     @property
     def database_path(self) -> str:
-        return self._config["DATABASE_PATH"]
+        return self._config["DATABASE"]["path"]
 
 
 # 全局配置实例

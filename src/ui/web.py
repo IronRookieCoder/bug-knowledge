@@ -108,32 +108,46 @@ def init_vector_indices():
 
         for index_file in index_files:
             index_path = indices_dir / index_file
+            logger.info(f"开始处理索引文件: {index_file}")
+            
             if not index_path.exists():
-                # 如果索引文件不存在，创建一个空的索引
-                index = AnnoyIndex(vector_dim, index_type)
-                index.build(n_trees)
-                index.save(str(index_path))
-                logger.info(f"创建新的空索引: {index_file}")
+                logger.info(f"索引文件不存在，将创建新的空索引: {index_file}")
+                try:
+                    index = AnnoyIndex(vector_dim, index_type)
+                    index.build(n_trees)
+                    index.save(str(index_path))
+                    logger.info(f"创建新的空索引成功: {index_file}")
+                except Exception as e:
+                    logger.error(f"创建新的空索引 {index_file} 失败: {str(e)}")
+                    logger.error(f"错误堆栈: {traceback.format_exc()}")
+                    raise
                 continue
 
             for attempt in range(max_retries):
                 try:
+                    logger.info(f"尝试加载索引 {index_file} (尝试 {attempt + 1}/{max_retries})")
                     index = AnnoyIndex(vector_dim, index_type)
                     index.load(str(index_path))
                     logger.info(f"成功加载索引: {index_file}")
                     break
                 except Exception as e:
-                    logger.warning(
-                        f"加载索引 {index_file} 失败 (尝试 {attempt + 1}/{max_retries}): {str(e)}"
-                    )
+                    logger.error(f"加载索引 {index_file} 失败 (尝试 {attempt + 1}/{max_retries}): {str(e)}")
+                    logger.error(f"错误堆栈: {traceback.format_exc()}")
                     if attempt < max_retries - 1:
+                        logger.info(f"将在 {retry_delay} 秒后重试加载 {index_file}")
                         time.sleep(retry_delay)
                     else:
                         logger.error(f"加载索引 {index_file} 失败，已达到最大重试次数")
-                        index = AnnoyIndex(vector_dim, index_type)
-                        index.build(n_trees)
-                        index.save(str(index_path))
-                        logger.info(f"创建并保存新的空索引: {index_file}")
+                        try:
+                            logger.info(f"尝试创建新的空索引: {index_file}")
+                            index = AnnoyIndex(vector_dim, index_type)
+                            index.build(n_trees)
+                            index.save(str(index_path))
+                            logger.info(f"创建并保存新的空索引成功: {index_file}")
+                        except Exception as save_e:
+                            logger.error(f"创建新的空索引 {index_file} 失败: {str(save_e)}")
+                            logger.error(f"错误堆栈: {traceback.format_exc()}")
+                            raise RuntimeError(f"处理索引 {index_file} 完全失败，无法继续")
 
     except Exception as e:
         logger.error(f"初始化向量索引失败: {str(e)}")
@@ -167,19 +181,23 @@ def start_web_app(
 ):
     """启动Web应用"""
     try:
+        import signal
+        import sys
+        
         app = create_app()
-
+        
         # 使用配置中的host和port，如果没有提供参数的话
         web_config = config.get("WEB", {})
         final_host = host or web_config.get("host", "127.0.0.1")
         final_port = port or web_config.get("port", 8010)
-
+        
         # 配置热重载选项
         uvicorn_config = {
             "host": final_host,
             "port": final_port,
+            "log_level": "info"
         }
-
+        
         if reload:
             uvicorn_config["reload"] = True
             uvicorn_config["reload_dirs"] = reload_dirs or ["src"]
@@ -188,10 +206,20 @@ def start_web_app(
                 "*.pyc",
                 "__pycache__",
             ]
-
+            
+        server = uvicorn.Server(uvicorn.Config(app, **uvicorn_config))
+            
+        # 添加信号处理器
+        def handle_exit(signum, frame):
+            logger.info("接收到退出信号，正在停止服务器...")
+            server.should_exit = True
+            
+        signal.signal(signal.SIGINT, handle_exit)
+        signal.signal(signal.SIGTERM, handle_exit)
+            
         # 启动服务器
-        uvicorn.run(app, **uvicorn_config)
-
+        server.run()
+            
     except Exception as e:
         logger.error(f"启动Web应用失败: {str(e)}")
         logger.error(f"错误堆栈: {traceback.format_exc()}")

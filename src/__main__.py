@@ -1,16 +1,17 @@
-import argparse
 import sys
 from pathlib import Path
-import time
-from src.utils.log import get_logger
-import os
-import threading
-
-logger = get_logger(__name__)
 
 # 添加项目根目录到 Python 路径
 project_root = str(Path(__file__).parent.parent)
 sys.path.insert(0, project_root)
+
+import argparse
+import time
+import os
+import threading
+from src.utils.log import get_logger
+
+logger = get_logger(__name__)
 
 from src.ui.web import start_web_app
 from src.retrieval.searcher import BugSearcher
@@ -62,16 +63,13 @@ def ensure_directories():
 
 
 def start_web_server():
-    """在后台线程中启动Web服务"""
+    """在主线程中启动Web服务"""
     host = config.get("WEB", {}).get("host")
     port = config.get("WEB", {}).get("port")
-    web_thread = threading.Thread(
-        target=start_web_app,
-        args=(host, port),
-        daemon=True  # 设置为守护线程，这样主程序退出时会自动结束
-    )
-    web_thread.start()
-    return web_thread
+    
+    # 直接在主线程中启动web服务
+    start_web_app(host, port)
+    return None
 
 
 def main():
@@ -164,7 +162,7 @@ def main():
             # 3. Web服务
             try:
                 logger.info("3. 启动Web服务...")
-                web_thread = start_web_server()
+                start_web_server()
             except Exception as e:
                 logger.error(f"Web服务启动失败: {str(e)}")
                 raise
@@ -177,7 +175,7 @@ def main():
             storage_main()
         elif args.mode == "web":
             logger.info("启动Web服务...")
-            web_thread = start_web_server()
+            start_web_server()
 
     if args.schedule:
         logger.info("计划运行模式已启用，任务将按设定周期执行...")
