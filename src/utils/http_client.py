@@ -141,6 +141,15 @@ class HttpClient:
         if not items:
             return []
             
+        # 检查items是否为列表，如果不是，转换为列表
+        if not isinstance(items, list):
+            logger.warning(f"输入items不是列表类型，而是 {type(items)}，尝试转换")
+            try:
+                items = list(items)
+            except:
+                logger.error(f"无法将输入 {type(items)} 转换为列表")
+                return []
+            
         results = []
         total_items = len(items)
         completed = 0
@@ -152,12 +161,23 @@ class HttpClient:
             futures = {}
             for item in items:
                 try:
-                    # 如果item是字典类型，复制一份以避免并发修改
-                    if isinstance(item, dict):
-                        item = item.copy()
-                    futures[executor.submit(func, item, *args, **kwargs)] = item
+                    # 跳过无效的项目类型
+                    if isinstance(item, str) and len(item) < 100:  # 避免处理可能是键的短字符串
+                        logger.warning(f"跳过字符串类型项目: {item}")
+                        continue
+                        
+                    # 如果是字典类型且不是None，进行深拷贝
+                    if isinstance(item, dict) and item is not None:
+                        processed_item = json.loads(json.dumps(item))  # 深拷贝字典
+                    # 如果是其他可变类型（如列表、集合），使用浅拷贝
+                    elif hasattr(item, '__iter__') and not isinstance(item, (str, bytes)):
+                        processed_item = item.copy()
+                    else:
+                        processed_item = item
+                        
+                    futures[executor.submit(func, processed_item, *args, **kwargs)] = processed_item
                 except Exception as e:
-                    logger.error(f"创建任务时发生错误: {str(e)}, 项目: {item}")
+                    logger.error(f"创建任务时发生错误: {str(e)}, 项目类型: {type(item)}, 项目值: {item}")
                     continue
 
             for future in concurrent.futures.as_completed(futures):
@@ -171,10 +191,11 @@ class HttpClient:
                         else:
                             results.append(result)
                     completed += 1
-                    if completed % 10 == 0 or completed == total_items:  # 每10个任务或最后一个任务记录一次进度
+                    if completed % 10 == 0 or completed == total_items:
                         logger.debug(f"任务进度: {completed}/{total_items} ({completed/total_items*100:.1f}%)")
                 except Exception as e:
-                    logger.error(f"处理项目时发生错误: {str(e)}, 项目类型: {type(item)}, 项目值: {item}")
+                    logger.error(f"处理项目时发生错误: {str(e)}, 项目类型: {type(item)}, 项目值: {repr(item)}")
+                    continue
 
         duration = time.time() - start_time
         logger.info(f"并发处理完成，总耗时: {duration:.2f}秒，成功处理: {len(results)}/{total_items}")
@@ -192,6 +213,11 @@ class HttpClient:
         if not items:
             return []
 
+        # 确保items是列表类型
+        if not isinstance(items, list):
+            logger.error(f"输入items必须是列表类型，当前类型: {type(items)}")
+            return []
+
         chunk_size = chunk_size or self.concurrency_config.chunk_size
         chunks = [items[i : i + chunk_size] for i in range(0, len(items), chunk_size)]
         total_chunks = len(chunks)
@@ -207,29 +233,54 @@ class HttpClient:
         with concurrent.futures.ThreadPoolExecutor(
             max_workers=self.concurrency_config.max_workers
         ) as executor:
-            futures = {
-                executor.submit(func, chunk, *args, **kwargs): chunk for chunk in chunks
-            }
+            futures = {}
+            
+            # 提交任务时进行类型检查
+            for chunk in chunks:
+                if not isinstance(chunk, list):
+                    logger.error(f"块必须是列表类型，当前类型: {type(chunk)}")
+                    continue
+                try:
+                    futures[executor.submit(func, chunk, *args, **kwargs)] = chunk
+                except Exception as e:
+                    logger.error(f"提交任务时发生错误: {str(e)}, 块大小: {len(chunk)}")
+                    continue
 
+            # 处理任务结果
             for future in concurrent.futures.as_completed(futures):
                 chunk = futures[future]
                 try:
                     result = future.result()
+                    
+                    # 类型检查和结果处理
                     if result is not None:
                         if isinstance(result, list):
-                            results.extend(result)
+                            # 过滤掉None值
+                            valid_results = [item for item in result if item is not None]
+                            results.extend(valid_results)
+                            logger.debug(f"成功处理 {len(valid_results)}/{len(result)} 个项目")
                         else:
-                            results.append(result)
+                            logger.warning(f"任务返回值不是列表类型: {type(result)}")
+                    
                     completed_chunks += 1
-                    logger.debug(
-                        f"批次进度: {completed_chunks}/{total_chunks} "
-                        f"({completed_chunks/total_chunks*100:.1f}%)"
-                    )
+                    if completed_chunks % 5 == 0 or completed_chunks == total_chunks:
+                        logger.debug(
+                            f"批次进度: {completed_chunks}/{total_chunks} "
+                            f"({completed_chunks/total_chunks*100:.1f}%)"
+                        )
                 except Exception as e:
                     logger.error(
                         f"处理批次 {completed_chunks + 1} 时发生错误，"
                         f"批次大小: {len(chunk)}，错误: {str(e)}"
                     )
+                    if self.retry_config.max_retries > 0:
+                        logger.info(f"尝试重试该批次处理")
+                        try:
+                            retry_result = func(chunk, *args, **kwargs)
+                            if isinstance(retry_result, list):
+                                results.extend([item for item in retry_result if item is not None])
+                        except Exception as retry_e:
+                            logger.error(f"重试失败: {str(retry_e)}")
 
         duration = time.time() - start_time
         logger.info(

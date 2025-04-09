@@ -32,11 +32,19 @@ def get_gitlab_snippets(gl_configs):
                 continue
 
             # 并发处理所有提交
+            # 确保传入的是完整的commit字典，而不是键
+            filtered_commits = []
+            for commit in commits:
+                if isinstance(commit, dict) and commit.get("project_id"):
+                    filtered_commits.append(commit)
+                else:
+                    logger.warning(f"跳过无效的commit数据: {commit}")
+                    
             snippets = http_client.concurrent_map(
                 lambda commit: gl_crawler.parse_commit(
                     commit.get("project_id"), commit
                 ),
-                commits,
+                filtered_commits,
             )
 
             # 整合代码片段
