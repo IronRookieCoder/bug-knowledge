@@ -17,9 +17,9 @@ def get_gitlab_snippets(gl_configs):
     for gl_config in gl_configs:
         try:
             gl_crawler = GitLabCrawler(
-                gl_config["url"],
-                gl_config["token"],
-                gl_config["project_ids"],
+                gl_config.url,
+                gl_config.token,
+                gl_config.project_ids,
                 config.get("GITLAB_SINCE_DATE"),
                 config.get("GITLAB_UNTIL_DATE"),
             )
@@ -27,7 +27,7 @@ def get_gitlab_snippets(gl_configs):
             commits = gl_crawler.get_commits_for_all_projects()
             if not commits:
                 logger.warning(
-                    f"No commits found for GitLab config: {gl_config['url']}"
+                    f"No commits found for GitLab config: {gl_config.url}"
                 )
                 continue
 
@@ -46,7 +46,7 @@ def get_gitlab_snippets(gl_configs):
                         code_snippets_map[snippet.bug_id].append(snippet)
 
         except Exception as e:
-            logger.error(f"Error with GitLab config {gl_config['url']}: {str(e)}")
+            logger.error(f"Error with GitLab config {gl_config.url}: {str(e)}")
             continue
 
     return dict(code_snippets_map)
@@ -107,8 +107,8 @@ def main():
             return
 
         td_crawler = TDCrawler(
-            [cfg["url"] for cfg in td_configs],
-            [cfg["headers"] for cfg in td_configs]
+            [cfg.url for cfg in td_configs],
+            [cfg.headers for cfg in td_configs]
         )
 
         # 获取所有要处理的bug ID列表
