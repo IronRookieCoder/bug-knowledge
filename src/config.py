@@ -5,6 +5,40 @@ from dotenv import load_dotenv
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 import json
+import logging  # 新增：导入logging模块
+
+
+def setup_logger(name: str, log_file: str, level=logging.INFO) -> logging.Logger:
+    """设置logger"""
+    # 创建logger
+    logger = logging.getLogger(name)
+    logger.setLevel(level)
+
+    # 确保日志目录存在
+    log_dir = os.path.dirname(log_file)
+    if log_dir:
+        os.makedirs(log_dir, exist_ok=True)
+
+    # 创建文件处理器
+    file_handler = logging.FileHandler(log_file, encoding='utf-8')
+    file_handler.setLevel(level)
+
+    # 创建控制台处理器
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(level)
+
+    # 设置日志格式
+    formatter = logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
+    file_handler.setFormatter(formatter)
+    console_handler.setFormatter(formatter)
+
+    # 添加处理器
+    logger.addHandler(file_handler)
+    logger.addHandler(console_handler)
+
+    return logger
 
 
 @dataclass
@@ -443,8 +477,13 @@ class Config:
 
     def _log_config(self) -> None:
         """输出配置信息到日志"""
-        from src.utils.log import get_logger
-        logger = get_logger(__name__)
+        # 使用新的setup_logger方法创建logger
+        log_config = self._config.get("LOG", {})
+        logger = setup_logger(
+            __name__,
+            log_config.get("file", "logs/bug_knowledge.log"),
+            getattr(logging, log_config.get("level", "INFO"))
+        )
         
         logger.info("=== 系统配置信息 ===")
         
