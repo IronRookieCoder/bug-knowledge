@@ -1,7 +1,7 @@
 from typing import List, Dict, Optional, Any
-from src.crawler.gitlab_crawler import GitLabCrawler, CodeSnippet
+from src.crawler.gitlab_crawler import CodeSnippet
 from src.crawler.td_crawler import TDCrawler
-from src.config import config  # 直接使用全局config
+from src.config import config
 from src.utils.diff_preprocessor import preprocess_bug_diffs
 from src.models.bug_models import BugReport
 from src.utils.log import get_logger
@@ -10,42 +10,15 @@ logger = get_logger(__name__)
 
 class DataIntegrator:
     def __init__(self):
-        self._init_crawlers()
+        self._init_td_crawler()
 
-    def _init_crawlers(self):
-        # 初始化GitLab爬虫实例
-        gitlab_configs = config.get_gitlab_configs()
-        self.gitlab_crawlers = []
-        
-        if not gitlab_configs:
-            logger.warning("未找到有效的GitLab配置")
-            return
-            
-        for gl_config in gitlab_configs:
-            try:
-                # 获取时间配置并打印
-                since_date = config.get("GITLAB_SINCE_DATE")
-                until_date = config.get("GITLAB_UNTIL_DATE")
-                logger.debug(f"获取到时间配置 - since_date: {since_date}, until_date: {until_date}")
-                
-                self.gitlab_crawlers.append(
-                    GitLabCrawler(
-                        base_url=gl_config.url,
-                        private_token=gl_config.token,
-                        project_ids=gl_config.project_ids,
-                        since_date=since_date,
-                        until_date=until_date
-                    )
-                )
-                logger.info(f"成功初始化GitLab爬虫: {gl_config.url}")
-            except Exception as e:
-                logger.error(f"初始化GitLab爬虫失败: {gl_config.url if hasattr(gl_config, 'url') else 'unknown'}, 错误: {str(e)}")
-
+    def _init_td_crawler(self):
         # 初始化TD爬虫实例
         td_configs = config.get_td_configs()
         
         if not td_configs:
             logger.warning("未找到有效的TD配置")
+            self.td_crawler = None
             return
             
         try:
@@ -58,6 +31,7 @@ class DataIntegrator:
             
             if not urls or not headers_list:
                 logger.warning("没有有效的TD系统配置")
+                self.td_crawler = None
                 return
                 
             self.td_crawler = TDCrawler(
@@ -68,63 +42,6 @@ class DataIntegrator:
         except Exception as e:
             logger.error(f"初始化TD爬虫失败: {str(e)}")
             self.td_crawler = None
-
-    def collect_bug_data(self) -> List[Dict]:
-        """收集所有系统的bug数据"""
-        all_bugs = []
-        
-        # 验证爬虫是否正确初始化
-        if not hasattr(self, 'gitlab_crawlers') or not self.gitlab_crawlers:
-            logger.error("GitLab爬虫未正确初始化")
-            return all_bugs
-            
-        if not hasattr(self, 'td_crawler') or not self.td_crawler:
-            logger.error("TD爬虫未正确初始化")
-            return all_bugs
-        
-        # 从每个GitLab实例收集数据
-        for crawler in self.gitlab_crawlers:
-            try:
-                commits = crawler.get_commits_for_all_projects()
-                if not commits:
-                    logger.warning(f"GitLab实例未返回提交数据: {crawler.base_url}")
-                    continue
-                    
-                logger.info(f"开始处理 {crawler.base_url} 的 {len(commits)} 个提交")
-                
-                for commit in commits:
-                    if not isinstance(commit, dict) or not commit.get("project_id"):
-                        logger.warning(f"跳过无效的提交: {commit}")
-                        continue
-                        
-                    try:
-                        snippets = crawler.parse_commit(commit["project_id"], commit)
-                        if not snippets:
-                            continue
-                            
-                        # 获取第一个snippet中的bug_id（因为同一个commit的所有snippet共享同一个bug_id）
-                        bug_id = snippets[0].bug_id
-                        if not bug_id:
-                            logger.debug(f"提交 {commit.get('id', '未知')} 未关联bug ID")
-                            continue
-                            
-                        # 获取bug详情
-                        bug_details = self.td_crawler.get_bug_details(bug_id)
-                        if bug_details:
-                            all_bugs.append({
-                                "bug_details": bug_details,
-                                "code_snippets": snippets
-                            })
-                            logger.debug(f"成功收集bug {bug_id} 的完整数据")
-                    except Exception as e:
-                        logger.error(f"处理提交时发生错误: {str(e)}, commit_id: {commit.get('id', '未知')}")
-                        continue
-            except Exception as e:
-                logger.error(f"从GitLab {crawler.base_url} 收集数据时发生错误: {str(e)}")
-                continue
-
-        logger.info(f"共收集到 {len(all_bugs)} 个完整的bug数据")
-        return all_bugs
 
     @staticmethod
     def integrate(code_snippets: List[CodeSnippet], bug_report: BugReport) -> BugReport:
