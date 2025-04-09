@@ -44,6 +44,16 @@
 - `INDEX_TYPE`: 索引类型
 - `N_TREES`: 树的数量
 
+### 备份配置
+- `BACKUP_ROOT`: 备份根目录（默认: data/backup/）
+- `BACKUP_KEEP_DAYS`: 常规备份保留天数（默认: 30）
+- `BACKUP_MIN_MONTHLY`: 每月最少保留备份数（默认: 1）
+- `BACKUP_MAX_MONTHLY`: 每月最多保留备份数（默认: 3）
+- `BACKUP_COMPRESSION`: 是否压缩备份（默认: True）
+- `VECTOR_BACKUP_DIR`: 向量索引备份目录（默认: data/annoy/backup/）
+- `DB_BACKUP_DIR`: 数据库备份目录（默认: data/backup/db/）
+- `CONFIG_BACKUP_DIR`: 配置备份目录（默认: data/backup/config/）
+
 ### 数据源配置
 - `GITLAB_URLS`: GitLab服务器URL列表（|分隔）
 - `GITLAB_TOKENS`: GitLab访问令牌列表（|分隔）
@@ -83,13 +93,16 @@
 - DEBUG=False
 - 较大的日志文件大小和备份数量
 - HOST=0.0.0.0
-- 建议配置专门的数据目录
+- 配置更大的备份保留期限
+- 启用压缩备份
+- 配置专门的备份目录
 
 ### 本地配置（.env.local）
 用于覆盖环境配置，适用于：
 - 本地测试配置
 - 敏感信息（tokens、cookies）
 - 临时配置
+- 自定义备份策略
 
 ## 配置验证
 
@@ -98,3 +111,5 @@
 2. 端口号有效性（1024-65535）
 3. 目录权限和可访问性
 4. 向量存储配置的完整性
+5. 备份目录的可写性
+6. 备份配置的合理性

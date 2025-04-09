@@ -108,6 +108,25 @@ chmod +x setup        # 仅Linux环境需要
 - ./data: 存储数据库文件和向量存储
 - ./logs: 存储应用日志
 
+## 数据管理
+
+### 备份策略
+1. 自动备份
+   - 向量索引备份：data/annoy/backup/YYYYMMDD_HHMMSS/
+   - 数据库备份：data/backup/bugs_YYYYMMDD_HHMMSS.db
+   - 配置文件备份：data/backup/config_YYYYMMDD_HHMMSS.json
+
+### 磁盘空间管理
+1. 建议预留空间：
+   - 向量索引：基础数据量的3倍
+   - 数据库：基础数据量的2倍
+   - 备份：至少10GB可用空间
+
+2. 日志轮转
+   - 自动压缩超过10MB的日志文件
+   - 保留最近5个备份
+   - 每月归档一次
+
 ## 注意事项
 
 1. 路径处理
