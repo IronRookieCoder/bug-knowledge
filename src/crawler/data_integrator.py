@@ -63,16 +63,26 @@ class DataIntegrator:
     @staticmethod
     def integrate(code_snippets: list, bug_report: BugReport) -> BugReport:
         """整合代码片段和bug详情"""
-        # 预处理所有代码差异，获取聚合的新增和删除代码
-        all_diffs = "\n".join([s.code_diff for s in code_snippets])
-        preprocessed = preprocess_bug_diffs(all_diffs)
-        project_id = code_snippets[0].project_id if code_snippets else ""
+        try:
+            # 预处理所有代码差异，获取聚合的新增和删除代码
+            all_diffs = "\n".join([str(s.code_diff) for s in code_snippets])
+            preprocessed = preprocess_bug_diffs(all_diffs)
+            project_id = str(code_snippets[0].project_id) if code_snippets else ""
 
-        # 使用现有的 BugReport，只更新代码相关字段
-        bug_report.file_paths = [s.file_path for s in code_snippets]
-        bug_report.code_diffs = [s.code_diff for s in code_snippets]
-        bug_report.aggregated_added_code = preprocessed['aggregated_added_code'] if preprocessed else ""
-        bug_report.aggregated_removed_code = preprocessed['aggregated_removed_code'] if preprocessed else ""
-        bug_report.project_id = project_id
+            # 使用现有的 BugReport，只更新代码相关字段，确保类型正确
+            bug_report.file_paths = [str(s.file_path) for s in code_snippets]
+            bug_report.code_diffs = [str(s.code_diff) for s in code_snippets]
+            bug_report.aggregated_added_code = str(preprocessed['aggregated_added_code'] if preprocessed else "")
+            bug_report.aggregated_removed_code = str(preprocessed['aggregated_removed_code'] if preprocessed else "")
+            bug_report.project_id = project_id
 
-        return bug_report
+            # 确保其他关键字段类型正确
+            if bug_report.related_issues and not isinstance(bug_report.related_issues, list):
+                bug_report.related_issues = []
+            if bug_report.handlers and not isinstance(bug_report.handlers, list):
+                bug_report.handlers = []
+                
+            return bug_report
+        except Exception as e:
+            logger.error(f"数据整合失败: {str(e)}")
+            raise

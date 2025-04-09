@@ -118,7 +118,6 @@ def main():
         http_client.chunk_concurrent_map(
             lambda batch: process_bugs_batch(batch, td_crawler, code_snippets_map, db),
             bug_ids,
-            chunk_size=10  # 每批处理10个bug
         )
 
     except Exception as e:

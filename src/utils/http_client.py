@@ -26,9 +26,9 @@ class RetryConfig:
 class ConcurrencyConfig:
     """并发配置"""
 
-    max_workers: int = 10  # 最大并发线程数
-    chunk_size: int = 5  # 批处理时的分块大小
-    request_timeout: float = 30.0  # 请求超时时间(秒)
+    max_workers: int = 50  # 最大并发线程数
+    chunk_size: int = 10  # 批处理时的分块大小
+    request_timeout: float = 60.0  # 请求超时时间(秒)
 
 
 def with_retry(retry_config: RetryConfig) -> Callable:
@@ -138,42 +138,46 @@ class HttpClient:
         self, func: Callable[[Any], T], items: List[Any], *args, **kwargs
     ) -> List[T]:
         """并发执行任务"""
+        if not items:
+            return []
+            
         results = []
         total_items = len(items)
         completed = 0
 
-        logger.info(
-            f"开始并发处理 {total_items} 个任务，最大并发数: {self.concurrency_config.max_workers}"
-        )
+        logger.info(f"开始并发处理 {total_items} 个任务，最大并发数: {self.concurrency_config.max_workers}")
         start_time = time.time()
 
-        with concurrent.futures.ThreadPoolExecutor(
-            max_workers=self.concurrency_config.max_workers
-        ) as executor:
-            futures = {
-                executor.submit(func, item, *args, **kwargs): item for item in items
-            }
+        with concurrent.futures.ThreadPoolExecutor(max_workers=self.concurrency_config.max_workers) as executor:
+            futures = {}
+            for item in items:
+                try:
+                    # 如果item是字典类型，复制一份以避免并发修改
+                    if isinstance(item, dict):
+                        item = item.copy()
+                    futures[executor.submit(func, item, *args, **kwargs)] = item
+                except Exception as e:
+                    logger.error(f"创建任务时发生错误: {str(e)}, 项目: {item}")
+                    continue
 
             for future in concurrent.futures.as_completed(futures):
                 item = futures[future]
                 try:
                     result = future.result()
                     if result is not None:
-                        if isinstance(result, list):
-                            results.extend(result)
+                        # 处理返回结果
+                        if isinstance(result, (list, tuple, set)):
+                            results.extend(list(result))
                         else:
                             results.append(result)
                     completed += 1
-                    logger.debug(
-                        f"任务进度: {completed}/{total_items} ({completed/total_items*100:.1f}%)"
-                    )
+                    if completed % 10 == 0 or completed == total_items:  # 每10个任务或最后一个任务记录一次进度
+                        logger.debug(f"任务进度: {completed}/{total_items} ({completed/total_items*100:.1f}%)")
                 except Exception as e:
-                    logger.error(f"处理项目 {item} 时发生错误: {str(e)}")
+                    logger.error(f"处理项目时发生错误: {str(e)}, 项目类型: {type(item)}, 项目值: {item}")
 
         duration = time.time() - start_time
-        logger.info(
-            f"并发处理完成，总耗时: {duration:.2f}秒，成功处理: {len(results)}/{total_items}"
-        )
+        logger.info(f"并发处理完成，总耗时: {duration:.2f}秒，成功处理: {len(results)}/{total_items}")
         return results
 
     def chunk_concurrent_map(

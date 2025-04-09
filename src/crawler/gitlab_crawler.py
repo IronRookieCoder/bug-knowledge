@@ -161,30 +161,48 @@ class GitLabCrawler:
         response = http_client.get(url, headers=self.headers)
         return response.json()
 
-    def parse_commit(self, project_id: str, commit: dict) -> List[Optional[CodeSnippet]]:
-        """解析commit生成代码片段"""
-        bug_id = self._extract_bug_id(commit["title"] + " " + commit.get("message", ""))
-        if not bug_id:
-            logger.debug(f"提交 {commit['id']} 未找到关联的bug ID")
-            return []
+    def parse_commit(self, project_id: str, commit: Dict) -> List[CodeSnippet]:
+        """解析提交信息，获取代码片段"""
+        try:
+            # 提取bug ID，确保是字符串类型
+            bug_id = str(self._extract_bug_id(commit.get("message", "")))
+            if not bug_id:
+                return []
 
-        logger.debug(f"解析提交 {commit['id']}，关联bug ID: {bug_id}")
-        diffs = self.get_commit_diff(project_id, commit["id"])
-        if not diffs:
-            logger.debug(f"提交 {commit['id']} 未包含代码差异")
-            return []
+            commit_sha = str(commit.get("id", ""))
+            if not commit_sha:
+                return []
 
-        # 使用并发处理所有文件差异
-        logger.debug(f"开始并发处理提交 {commit['id']} 的 {len(diffs)} 个文件差异")
-        snippets = http_client.concurrent_map(
-            lambda diff: self._process_diff(diff, bug_id, commit["id"], project_id),
-            diffs
-        )
-        valid_snippets = [s for s in snippets if s is not None]
-        logger.debug(
-            f"提交 {commit['id']} 处理完成，生成 {len(valid_snippets)} 个有效代码片段"
-        )
-        return valid_snippets
+            # 获取代码差异
+            diff_response = self.get_commit_diff(project_id, commit_sha)
+            if not diff_response:
+                return []
+
+            code_snippets = []
+            for diff in diff_response:
+                try:
+                    file_path = str(diff.get("new_path", "") or diff.get("old_path", ""))
+                    if not file_path:
+                        continue
+
+                    # 创建CodeSnippet对象，确保所有字段都是正确的类型
+                    snippet = CodeSnippet(
+                        bug_id=bug_id,
+                        file_path=file_path,
+                        commit_sha=commit_sha,
+                        programming_language=str(self._get_file_language(file_path)),
+                        code_diff=str(diff.get("diff", "")),
+                        project_id=str(project_id)
+                    )
+                    code_snippets.append(snippet)
+                except Exception as e:
+                    logger.error(f"处理diff时发生错误: {str(e)}, diff: {diff}")
+                    continue
+
+            return code_snippets
+        except Exception as e:
+            logger.error(f"解析commit时发生错误: {str(e)}, commit: {commit}")
+            return []
 
     def _process_diff(
         self, diff: Dict[str, Any], bug_id: str, commit_sha: str, project_id: str

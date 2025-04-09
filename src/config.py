@@ -33,6 +33,7 @@ class Config:
         self._config: Dict[str, Any] = {}
         self.load_config()
         self._validate_config()
+        self._log_config()
 
     def load_config(self) -> None:
         """加载配置"""
@@ -427,6 +428,40 @@ class Config:
     @property
     def database_path(self) -> str:
         return self._config["DATABASE"]["path"]
+
+    def _mask_sensitive_info(self, key: str, value: Any) -> Any:
+        """对敏感信息进行掩码处理"""
+        sensitive_keys = {'token', 'password', 'secret', 'cookie', 'TOKEN', 'PASSWORD', 'SECRET', 'COOKIE'}
+        if any(sensitive in key for sensitive in sensitive_keys):
+            if isinstance(value, str):
+                return '*' * 8
+            elif isinstance(value, list):
+                return ['*' * 8] * len(value)
+            elif isinstance(value, dict):
+                return {k: '*' * 8 for k in value}
+        return value
+
+    def _log_config(self) -> None:
+        """输出配置信息到日志"""
+        from src.utils.log import get_logger
+        logger = get_logger(__name__)
+        
+        logger.info("=== 系统配置信息 ===")
+        
+        # 处理并打印配置信息
+        for key, value in sorted(self._config.items()):
+            masked_value = self._mask_sensitive_info(key, value)
+            if isinstance(masked_value, (dict, list)):
+                logger.info(f"{key}:")
+                for k, v in masked_value.items() if isinstance(masked_value, dict) else enumerate(masked_value):
+                    if isinstance(v, (dict, list)):
+                        logger.info(f"  {k}: {json.dumps(v, ensure_ascii=False, indent=2)}")
+                    else:
+                        logger.info(f"  {k}: {v}")
+            else:
+                logger.info(f"{key}: {masked_value}")
+        
+        logger.info("=== 配置加载完成 ===")
 
 
 # 全局配置实例

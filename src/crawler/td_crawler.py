@@ -20,7 +20,6 @@ class TDCrawler:
         return http_client.chunk_concurrent_map(
             self._fetch_bug_details_batch,
             bug_ids,
-            chunk_size=5  # 每批5个bug
         )
 
     def _fetch_bug_details_batch(self, bug_ids: List[str]) -> List[Optional[BugReport]]:
@@ -63,29 +62,44 @@ class TDCrawler:
         self, bug_id: str, base_url: str, headers: dict
     ) -> Optional[BugReport]:
         """从指定的TD系统获取bug详情"""
-        url = f"{base_url}/api/v1/defect/by_key/{bug_id}?_t={self._get_timestamp()}"
-
-        response = http_client.get(url, headers=headers)
-        data = response.json()
-        data_data = data.get("data", {})
-        if not data_data:
-            logger.debug(f"TD系统返回的数据中没有找到bug {bug_id} 的详情")
-            return None
-
-        fields = data_data.get("fields", {})
-        logger.debug(f"成功获取bug {bug_id} 的原始数据，开始解析")
-
-        # 确保desc和comment字段为字符串类型
-        desc_content = str(fields.get("desc", ""))
-        comment_content = str(fields.get("comment", ""))
-
-        # 创建BugReport对象
         try:
+            url = f"{base_url}/api/v1/defect/by_key/{bug_id}?_t={self._get_timestamp()}"
+
+            response = http_client.get(url, headers=headers)
+            data = response.json()
+            data_data = data.get("data", {})
+            if not data_data or not isinstance(data_data, dict):
+                logger.debug(f"TD系统返回的数据中没有找到bug {bug_id} 的详情")
+                return None
+
+            fields = data_data.get("fields", {})
+            if not isinstance(fields, dict):
+                logger.warning(f"Bug {bug_id} 的fields字段不是字典类型")
+                return None
+
+            logger.debug(f"成功获取bug {bug_id} 的原始数据，开始解析")
+
+            # 确保所有字段都是正确的类型
+            desc_content = str(fields.get("desc", ""))
+            comment_content = str(fields.get("comment", ""))
+            severity_data = fields.get("severity", {})
+            severity = str(severity_data.get("name", "P4") if isinstance(severity_data, dict) else "P4")
+            
+            is_reappear_data = fields.get("is_reappear", {})
+            is_reappear = str(is_reappear_data.get("value", "1") if isinstance(is_reappear_data, dict) else "1")
+            
+            fix_person_data = fields.get("fix_person", {})
+            fix_person = str(fix_person_data.get("display_name", "") if isinstance(fix_person_data, dict) else "")
+
+            handlers_data = fields.get("handlers", [])
+            handlers = [str(h) for h in handlers_data] if isinstance(handlers_data, list) else []
+
+            # 创建BugReport对象
             bug_report = BugReport(
-                bug_id=str(data_data.get("key")),
-                summary=fields.get("summary", ""),
-                severity=fields.get("severity", {}).get("name", "P4"),
-                is_reappear=fields.get("is_reappear", {}).get("value", "1"),
+                bug_id=str(data_data.get("key", "")),
+                summary=str(fields.get("summary", "")),
+                severity=severity,
+                is_reappear=is_reappear,
                 description=desc_content,
                 test_steps=self._parse_desc_section(desc_content, "测试步骤"),
                 expected_result=self._parse_desc_section(desc_content, "期望结果"),
@@ -97,16 +111,17 @@ class TDCrawler:
                 ),
                 fix_solution=self._parse_comment_section(comment_content, "如何修改"),
                 related_issues=self._parse_related_issues(comment_content),
-                fix_person=fields.get("fix_person", {}).get("display_name"),
-                create_at=fields.get("create_at", ""),
-                fix_date=fields.get("fix_date", ""),
-                reopen_count=fields.get("reopen_count", 0),
-                handlers=fields.get("handlers", [])
+                fix_person=fix_person,
+                create_at=str(fields.get("create_at", "")),
+                fix_date=str(fields.get("fix_date", "")),
+                reopen_count=int(fields.get("reopen_count", 0)),
+                handlers=handlers
             )
             logger.debug(f"成功解析bug {bug_id} 的详情数据")
             return bug_report
+
         except Exception as e:
-            logger.error(f"解析bug {bug_id} 的详情数据时发生错误: {str(e)}")
+            logger.error(f"获取或解析bug {bug_id} 详情时发生错误: {str(e)}")
             raise
 
     def _build_structured_description(self, desc: str) -> str:
