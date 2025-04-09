@@ -204,6 +204,23 @@ class GitLabCrawler:
             if not result:
                 continue
                 
+            # 修复：有时API返回字典而不是列表，需要处理这种情况
+            if isinstance(result, dict):
+                logger.warning(f"获取到字典类型的commits结果而不是列表，尝试提取数据")
+                # 尝试查找可能包含提交的键
+                possible_keys = ["commits", "data", "results", "items"]
+                for key in possible_keys:
+                    if key in result and isinstance(result[key], list):
+                        logger.info(f"从字典中提取到 {len(result[key])} 个提交")
+                        validated_results.append(result[key])
+                        break
+                else:
+                    # 如果找不到有效的列表，尝试将字典本身作为单个提交处理
+                    if "id" in result and "message" in result:
+                        logger.info("字典本身似乎是一个commit对象，直接处理")
+                        validated_results.append([result])
+                continue
+                
             if not isinstance(result, list):
                 logger.warning(f"获取到非列表类型的commits结果: {type(result)}")
                 continue
@@ -214,10 +231,26 @@ class GitLabCrawler:
         flattened_commits = []
         for sublist in validated_results:
             for commit in sublist:
-                if isinstance(commit, dict) and "id" in commit and "project_id" in commit:
-                    flattened_commits.append(commit)
-                else:
-                    logger.warning(f"跳过无效的commit数据: {type(commit)}")
+                if not isinstance(commit, dict):
+                    logger.warning(f"跳过非字典类型的commit: {type(commit)}")
+                    continue
+                    
+                # 要求commit对象必须有id字段
+                if "id" not in commit:
+                    logger.warning("跳过缺少id的commit")
+                    continue
+                    
+                # 确保commit有project_id字段
+                if "project_id" not in commit:
+                    # 尝试找出这个commit来自哪个项目
+                    for project_id in self.project_ids:
+                        # 如果我们有其他方法确定所属项目，在这里添加逻辑
+                        # 目前简单地使用第一个项目ID（非理想方案）
+                        logger.warning(f"提交 {commit['id']} 缺少project_id字段，使用默认值: {self.project_ids[0]}")
+                        commit["project_id"] = self.project_ids[0]
+                        break
+                
+                flattened_commits.append(commit)
         
         logger.info(f"所有项目提交获取完成，共获取到 {len(flattened_commits)} 个有效提交")
         return flattened_commits
@@ -321,7 +354,14 @@ class GitLabCrawler:
                     logger.error(f"处理提交 {commit_sha} 的差异时发生错误: {str(e)}", exc_info=True)
                     continue
 
-            logger.info(f"提交 {commit_sha} 共解析出 {len(code_snippets)} 个代码片段")
+            # 返回结果时确保始终返回列表，即使只有一个元素
+            snippet_count = len(code_snippets)
+            logger.info(f"提交 {commit_sha} 共解析出 {snippet_count} 个代码片段")
+            
+            # 确保返回的是列表而不是单个对象
+            if snippet_count == 1:
+                logger.debug(f"只有一个代码片段，但仍然返回为列表")
+                
             return code_snippets
         except Exception as e:
             logger.error(f"解析提交 {commit_id} 时发生错误: {str(e)}", exc_info=True)

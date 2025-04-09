@@ -16,6 +16,7 @@ def get_gitlab_snippets(gl_configs):
     code_snippets_map = defaultdict(list)
     for gl_config in gl_configs:
         try:
+            logger.info(f"开始从GitLab配置 {gl_config.url} 获取代码片段")
             gl_crawler = GitLabCrawler(
                 gl_config.url,
                 gl_config.token,
@@ -25,12 +26,34 @@ def get_gitlab_snippets(gl_configs):
             )
 
             commits = gl_crawler.get_commits_for_all_projects()
+            # 检查commits是否为列表
+            if not isinstance(commits, list):
+                logger.warning(
+                    f"从GitLab {gl_config.url} 获取的commits数据不是列表: {type(commits)}"
+                )
+                if isinstance(commits, dict):
+                    logger.warning("尝试从字典中提取commits数据")
+                    # 尝试从字典中提取列表
+                    for key in ["commits", "data", "items", "results"]:
+                        if key in commits and isinstance(commits[key], list):
+                            commits = commits[key]
+                            logger.info(f"从字典的 '{key}' 键中提取到 {len(commits)} 个commits")
+                            break
+                    else:
+                        logger.error(f"无法从字典提取commits数据: {list(commits.keys())}")
+                        continue
+                else:
+                    logger.error(f"无法处理的commits数据类型: {type(commits)}")
+                    continue
+                    
             if not commits:
                 logger.warning(
                     f"No commits found for GitLab config: {gl_config.url}"
                 )
                 continue
 
+            logger.info(f"从GitLab {gl_config.url} 获取到 {len(commits)} 个commits")
+                
             # 并发处理所有提交
             # 确保传入的是完整的commit字典，而不是键
             filtered_commits = []
@@ -42,41 +65,89 @@ def get_gitlab_snippets(gl_configs):
                     
                 # 检查是否包含project_id字段
                 if not commit.get("project_id"):
-                    # 判断是否只是键名列表而不是完整的commit对象
-                    if isinstance(commit, str) and commit in ["id", "title", "message", "project_id"]:
-                        logger.warning(f"跳过无效的commit数据(仅键名): {commit}")
-                        continue
-                    logger.warning(f"跳过缺少project_id的commit: {commit.get('id', 'unknown')}")
-                    continue
+                    # 尝试修复：如果没有project_id，但有其他标识项目的字段
+                    if "project" in commit and isinstance(commit["project"], dict) and "id" in commit["project"]:
+                        commit["project_id"] = str(commit["project"]["id"])
+                        logger.debug(f"从commit.project.id提取project_id: {commit['project_id']}")
+                    else:
+                        # 最后手段：使用配置中的第一个项目ID
+                        if gl_config.project_ids:
+                            commit["project_id"] = gl_config.project_ids[0]
+                            logger.warning(f"为commit {commit.get('id', 'unknown')} 分配默认project_id: {commit['project_id']}")
+                        else:
+                            logger.warning(f"跳过缺少project_id的commit: {commit.get('id', 'unknown')}")
+                            continue
                     
                 # 检查commit是否包含id字段
                 if not commit.get("id"):
                     logger.warning(f"跳过缺少id的commit, project_id: {commit.get('project_id')}")
                     continue
                     
+                # 确保message字段存在，避免后续处理错误
+                if "message" not in commit or commit["message"] is None:
+                    commit["message"] = ""
+                    logger.debug(f"为commit {commit['id']} 添加空message字段")
+                    
                 # 通过检查，添加到过滤后的列表
                 filtered_commits.append(commit)
                     
             logger.info(f"过滤后共有 {len(filtered_commits)}/{len(commits)} 个有效commit")
             
-            snippets = http_client.concurrent_map(
-                lambda commit: gl_crawler.parse_commit(
-                    commit.get("project_id"), commit
-                ),
-                filtered_commits,
-            )
-
-            # 整合代码片段
-            for snippet_list in snippets:
-                if snippet_list:
-                    for snippet in snippet_list:
-                        code_snippets_map[snippet.bug_id].append(snippet)
+            if not filtered_commits:
+                logger.warning(f"筛选后没有有效的commits，跳过GitLab配置 {gl_config.url}")
+                continue
+                
+            try:
+                logger.info(f"开始从 {len(filtered_commits)} 个commits中提取代码片段")
+                snippets = http_client.concurrent_map(
+                    lambda commit: gl_crawler.parse_commit(
+                        commit.get("project_id"), commit
+                    ),
+                    filtered_commits,
+                )
+                
+                logger.info(f"成功从GitLab {gl_config.url} 获取代码片段结果 {len(snippets)} 个")
+                
+                # 整合代码片段
+                snippet_count = 0
+                for item in snippets:
+                    # 跳过空值
+                    if not item:
+                        continue
+                        
+                    # 处理单个CodeSnippet对象的情况
+                    if isinstance(item, CodeSnippet):
+                        logger.debug(f"直接处理单个CodeSnippet对象: {item.file_path}")
+                        code_snippets_map[item.bug_id].append(item)
+                        snippet_count += 1
+                        continue
+                        
+                    # 处理列表类型
+                    if isinstance(item, list):
+                        for snippet in item:
+                            if isinstance(snippet, CodeSnippet):
+                                code_snippets_map[snippet.bug_id].append(snippet)
+                                snippet_count += 1
+                            else:
+                                logger.warning(f"跳过非CodeSnippet类型的数据: {type(snippet)}")
+                        continue
+                    
+                    # 其他类型，记录警告
+                    logger.warning(f"无法处理的snippet数据类型: {type(item)}")
+                            
+                logger.info(f"从GitLab {gl_config.url} 成功提取 {snippet_count} 个代码片段")
+                
+            except Exception as e:
+                logger.error(f"处理GitLab {gl_config.url} 的commits时发生错误: {str(e)}", exc_info=True)
+                continue
 
         except Exception as e:
-            logger.error(f"Error with GitLab config {gl_config.url}: {str(e)}")
+            logger.error(f"处理GitLab配置 {gl_config.url} 时发生错误: {str(e)}", exc_info=True)
             continue
 
-    return dict(code_snippets_map)
+    result = dict(code_snippets_map)
+    logger.info(f"所有GitLab处理完成，共获取 {len(result)} 个bug的代码片段")
+    return result
 
 
 def process_bugs_batch(

@@ -194,12 +194,45 @@ class HttpClient:
                     
                     # 改进结果处理逻辑
                     if result is not None:
-                        if isinstance(result, (list, tuple)):
-                            # 展平列表结果
-                            results.extend(list(result))
-                        elif isinstance(result, dict):
-                            # 将字典作为一个整体添加到结果中
+                        # 判断结果是否为基本类型或已知容器类型之外的自定义类型
+                        is_custom_object = (
+                            not isinstance(result, (dict, list, tuple, set, str, int, float, bool))
+                            and result.__class__.__module__ != 'builtins'
+                        )
+                        
+                        if is_custom_object:
+                            # 自定义对象（如CodeSnippet）直接添加，不要尝试展平
+                            logger.debug(f"添加自定义类型对象: {type(result).__name__}")
                             results.append(result)
+                            
+                        # 字典类型的结果，作为一个整体添加到结果中
+                        elif isinstance(result, dict):
+                            logger.debug(f"添加字典类型结果")
+                            results.append(result)
+                        
+                        # 列表类型的结果，取决于是否需要展平
+                        elif isinstance(result, (list, tuple)):
+                            # 检查是否有自定义对象
+                            has_custom_objects = any(
+                                not isinstance(x, (dict, list, tuple, set, str, int, float, bool, type(None)))
+                                and x.__class__.__module__ != 'builtins'
+                                for x in result if x is not None
+                            )
+                            
+                            # 检查是否全是基本类型
+                            all_basic_types = all(
+                                isinstance(x, (int, float, str, bool, type(None))) 
+                                for x in result if x is not None
+                            )
+                            
+                            if all_basic_types or has_custom_objects:
+                                # 如果是基本类型列表或包含自定义对象，作为整体添加
+                                logger.debug(f"添加含自定义对象的列表或基本类型列表: {len(result)}个元素")
+                                results.append(result)
+                            else:
+                                # 其他复杂类型列表，展平处理
+                                logger.debug(f"展平复杂类型列表: {len(result)}个元素")
+                                results.extend(list(result))
                         else:
                             # 其他类型直接添加
                             results.append(result)
