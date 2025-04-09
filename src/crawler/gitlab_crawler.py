@@ -112,8 +112,15 @@ class GitLabCrawler:
         self.project_ids = project_ids
         
         # 确保时间参数是有效字符串或None
+        logger.info(f"设置时间参数 - since_date: {since_date}, until_date: {until_date}")
         self.since_date = since_date if since_date and isinstance(since_date, str) and since_date.strip() else None
         self.until_date = until_date if until_date and isinstance(until_date, str) and until_date.strip() else None
+        
+        # 如果时间参数有变化，记录一下
+        if self.since_date != since_date:
+            logger.warning(f"输入since_date: '{since_date}' 被转换为: '{self.since_date}'")
+        if self.until_date != until_date:
+            logger.warning(f"输入until_date: '{until_date}' 被转换为: '{self.until_date}'")
 
     def _extract_bug_id(self, message: str) -> Optional[str]:
         """改进的bug_id提取方法，从title和message中提取"""
@@ -136,6 +143,9 @@ class GitLabCrawler:
         url = f"{self.base_url}/api/v4/projects/{project_id}/repository/commits"
         params = {"per_page": 100, "page": 1}  # 每页获取100个commit
 
+        # 调试信息：打印时间参数
+        logger.debug(f"时间参数 - since_date: {self.since_date}, until_date: {self.until_date}")
+        
         # 处理时间范围参数
         time_range_desc = "所有时间"
         if self.since_date:

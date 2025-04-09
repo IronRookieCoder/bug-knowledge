@@ -1,7 +1,7 @@
 from typing import List, Dict, Optional, Any
 from src.crawler.gitlab_crawler import GitLabCrawler, CodeSnippet
 from src.crawler.td_crawler import TDCrawler
-from src.crawler.config import Config
+from src.config import config  # 直接使用全局config
 from src.utils.diff_preprocessor import preprocess_bug_diffs
 from src.models.bug_models import BugReport
 from src.utils.log import get_logger
@@ -10,48 +10,39 @@ logger = get_logger(__name__)
 
 class DataIntegrator:
     def __init__(self):
-        self.config = Config()
         self._init_crawlers()
 
     def _init_crawlers(self):
         # 初始化GitLab爬虫实例
-        gitlab_configs = self.config.get_gitlab_configs()
+        gitlab_configs = config.get_gitlab_configs()
         self.gitlab_crawlers = []
         
         if not gitlab_configs:
             logger.warning("未找到有效的GitLab配置")
             return
             
-        for config in gitlab_configs:
-            # 验证配置
-            if not isinstance(config, dict):
-                logger.warning(f"跳过无效的GitLab配置: {config}")
-                continue
-                
-            url = config.get("url")
-            token = config.get("token")
-            project_ids = config.get("project_ids")
-            
-            if not url or not token or not project_ids:
-                logger.warning(f"GitLab配置缺少必要参数, 跳过: {config}")
-                continue
-                
+        for gl_config in gitlab_configs:
             try:
+                # 获取时间配置并打印
+                since_date = config.get("GITLAB_SINCE_DATE")
+                until_date = config.get("GITLAB_UNTIL_DATE")
+                logger.debug(f"获取到时间配置 - since_date: {since_date}, until_date: {until_date}")
+                
                 self.gitlab_crawlers.append(
                     GitLabCrawler(
-                        base_url=url,
-                        private_token=token,
-                        project_ids=project_ids,
-                        since_date=self.config.GITLAB_SINCE_DATE,
-                        until_date=self.config.GITLAB_UNTIL_DATE
+                        base_url=gl_config.url,
+                        private_token=gl_config.token,
+                        project_ids=gl_config.project_ids,
+                        since_date=since_date,
+                        until_date=until_date
                     )
                 )
-                logger.info(f"成功初始化GitLab爬虫: {url}")
+                logger.info(f"成功初始化GitLab爬虫: {gl_config.url}")
             except Exception as e:
-                logger.error(f"初始化GitLab爬虫失败: {url}, 错误: {str(e)}")
+                logger.error(f"初始化GitLab爬虫失败: {gl_config.url if hasattr(gl_config, 'url') else 'unknown'}, 错误: {str(e)}")
 
         # 初始化TD爬虫实例
-        td_configs = self.config.get_td_configs()
+        td_configs = config.get_td_configs()
         
         if not td_configs:
             logger.warning("未找到有效的TD配置")
@@ -62,19 +53,8 @@ class DataIntegrator:
             headers_list = []
             
             for cfg in td_configs:
-                if not isinstance(cfg, dict):
-                    logger.warning(f"跳过无效的TD配置: {cfg}")
-                    continue
-                    
-                url = cfg.get("url")
-                headers = cfg.get("headers")
-                
-                if not url or not headers:
-                    logger.warning(f"TD配置缺少必要参数, 跳过: {cfg}")
-                    continue
-                    
-                urls.append(url)
-                headers_list.append(headers)
+                urls.append(cfg.url)
+                headers_list.append(cfg.headers)
             
             if not urls or not headers_list:
                 logger.warning("没有有效的TD系统配置")

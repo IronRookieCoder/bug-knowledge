@@ -17,12 +17,17 @@ def get_gitlab_snippets(gl_configs):
     for gl_config in gl_configs:
         try:
             logger.info(f"开始从GitLab配置 {gl_config.url} 获取代码片段")
+            
+            # 获取时间配置并打印
+            since_date = config.get("GITLAB_SINCE_DATE")
+            until_date = config.get("GITLAB_UNTIL_DATE")
+            
             gl_crawler = GitLabCrawler(
                 gl_config.url,
                 gl_config.token,
                 gl_config.project_ids,
-                config.get("GITLAB_SINCE_DATE"),
-                config.get("GITLAB_UNTIL_DATE"),
+                since_date,
+                until_date,
             )
 
             commits = gl_crawler.get_commits_for_all_projects()

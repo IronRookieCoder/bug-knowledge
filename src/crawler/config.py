@@ -79,10 +79,29 @@ class Config:
             return []
 
     @property
+    def DEFAULT_DAYS(self) -> int:
+        try:
+            days = config.get('DEFAULT_DAYS')
+            return int(days) if days else 30  # 默认30天
+        except Exception as e:
+            logger.error(f"获取DEFAULT_DAYS时发生错误: {str(e)}")
+            return 30
+
+    @property
     def GITLAB_SINCE_DATE(self) -> Optional[str]:
         try:
             date = config.get('GITLAB_SINCE_DATE')
-            return str(date) if date else None
+            if date and isinstance(date, str) and date.strip():
+                return date.strip()
+            
+            # 如果没有指定since_date，使用until_date减去DEFAULT_DAYS
+            until_date = self.GITLAB_UNTIL_DATE
+            if until_date:
+                from datetime import datetime, timedelta
+                end_date = datetime.strptime(until_date, "%Y-%m-%d")
+                start_date = end_date - timedelta(days=self.DEFAULT_DAYS)
+                return start_date.strftime("%Y-%m-%d")
+            return None
         except Exception as e:
             logger.error(f"获取GITLAB_SINCE_DATE时发生错误: {str(e)}")
             return None
@@ -91,7 +110,12 @@ class Config:
     def GITLAB_UNTIL_DATE(self) -> Optional[str]:
         try:
             date = config.get('GITLAB_UNTIL_DATE')
-            return str(date) if date else None
+            if date and isinstance(date, str) and date.strip():
+                return date.strip()
+            
+            # 如果没有指定until_date，使用当前日期
+            from datetime import datetime
+            return datetime.now().strftime("%Y-%m-%d")
         except Exception as e:
             logger.error(f"获取GITLAB_UNTIL_DATE时发生错误: {str(e)}")
             return None
