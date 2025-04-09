@@ -143,6 +143,18 @@
 
 <div id="searchResults" class="search-results"></div>
 {% endblock %} {% block scripts %}
+<style>
+.code-block {
+    max-width: 100%;
+    overflow-x: auto;
+    white-space: pre;
+    background-color: #f8f9fa;
+    padding: 1rem;
+    border-radius: 4px;
+    font-size: 0.875rem;
+    margin-bottom: 1rem;
+}
+</style>
 <script>
   document
     .getElementById("searchForm")
@@ -264,13 +276,15 @@
                             ? `
                             <div class="mb-3">
                                 <strong>代码变更：</strong>
-                                ${result.code_diffs
-                                  .map(
-                                    (diff) => `
-                                    <pre class="code-block">${diff}</pre>
-                                `
-                                  )
-                                  .join("")}
+                                <div class="code-diffs">
+                                    ${result.code_diffs
+                                      .map(
+                                        (diff) => `
+                                        <div class="code-block">${diff}</div>
+                                    `
+                                      )
+                                      .join("")}
+                                </div>
                             </div>
                         `
                             : ""
@@ -293,15 +307,11 @@
                         }
                         
                         ${
-                          result.handlers && result.handlers.length > 0
+                          result.fix_person
                             ? `
                             <div class="mb-3">
-                                <strong>处理人：</strong>
-                                <ul class="list-unstyled">
-                                    ${result.handlers
-                                      .map((handler) => `<li>${handler}</li>`)
-                                      .join("")}
-                                </ul>
+                                <strong>修复人：</strong>
+                                <p>${result.fix_person}</p>
                             </div>
                         `
                             : ""
