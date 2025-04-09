@@ -17,7 +17,7 @@ class RetryConfig:
     """重试配置"""
 
     max_retries: int = 3  # 最大重试次数
-    retry_delay: float = 1.0  # 初始重试延迟时间(秒)
+    retry_delay: float = 3.0  # 初始重试延迟时间(秒)
     max_delay: float = 10.0  # 最大重试延迟时间(秒)
     exponential_base: float = 2.0  # 指数退避的基数
 
@@ -26,7 +26,7 @@ class RetryConfig:
 class ConcurrencyConfig:
     """并发配置"""
 
-    max_workers: int = 50  # 最大并发线程数
+    max_workers: int = 20  # 最大并发线程数
     chunk_size: int = 10  # 批处理时的分块大小
     request_timeout: float = 60.0  # 请求超时时间(秒)
 

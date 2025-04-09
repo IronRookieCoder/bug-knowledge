@@ -97,11 +97,23 @@ class GitLabCrawler:
         since_date: str = None,
         until_date: str = None,
     ):
+        """
+        初始化GitLabCrawler
+        
+        Args:
+            base_url: GitLab API的基础URL
+            private_token: GitLab API的访问令牌
+            project_ids: 要爬取的项目ID列表
+            since_date: 开始日期，例如"2023-01-01"，默认为None表示不限制开始日期
+            until_date: 结束日期，例如"2023-12-31"，默认为None表示不限制结束日期
+        """
         self.base_url = base_url
         self.headers = {"Private-Token": private_token}
         self.project_ids = project_ids
-        self.since_date = since_date
-        self.until_date = until_date
+        
+        # 确保时间参数是有效字符串或None
+        self.since_date = since_date if since_date and isinstance(since_date, str) and since_date.strip() else None
+        self.until_date = until_date if until_date and isinstance(until_date, str) and until_date.strip() else None
 
     def _extract_bug_id(self, message: str) -> Optional[str]:
         """改进的bug_id提取方法，从title和message中提取"""
@@ -124,14 +136,17 @@ class GitLabCrawler:
         url = f"{self.base_url}/api/v4/projects/{project_id}/repository/commits"
         params = {"per_page": 100, "page": 1}  # 每页获取100个commit
 
+        # 处理时间范围参数
+        time_range_desc = "所有时间"
         if self.since_date:
             params["since"] = self.since_date
+            time_range_desc = f"{self.since_date}"
+            
         if self.until_date:
             params["until"] = self.until_date
+            time_range_desc = f"{time_range_desc} - {self.until_date}" if self.since_date else f"截止到 {self.until_date}"
 
-        logger.info(
-            f"开始获取项目 {project_id} 的提交记录，时间范围: {self.since_date} - {self.until_date}"
-        )
+        logger.info(f"开始获取项目 {project_id} 的提交记录，时间范围: {time_range_desc}")
 
         all_commits = []
         try:
@@ -206,7 +221,6 @@ class GitLabCrawler:
                 
             # 修复：有时API返回字典而不是列表，需要处理这种情况
             if isinstance(result, dict):
-                logger.warning(f"获取到字典类型的commits结果而不是列表，尝试提取数据")
                 # 尝试查找可能包含提交的键
                 possible_keys = ["commits", "data", "results", "items"]
                 for key in possible_keys:
@@ -217,7 +231,6 @@ class GitLabCrawler:
                 else:
                     # 如果找不到有效的列表，尝试将字典本身作为单个提交处理
                     if "id" in result and "message" in result:
-                        logger.info("字典本身似乎是一个commit对象，直接处理")
                         validated_results.append([result])
                 continue
                 
