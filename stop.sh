@@ -48,7 +48,9 @@ done
 
 # 在Windows下查找Python进程
 find_bug_knowledge_processes() {
-    cmd.exe /c "tasklist /FI \"IMAGENAME eq python.exe\" /FO CSV /NH" 2>/dev/null | \
+    # 同时查找 python.exe 和 python3.exe
+    (cmd.exe /c "tasklist /FI \"IMAGENAME eq python.exe\" /FO CSV /NH" 2>/dev/null && \
+     cmd.exe /c "tasklist /FI \"IMAGENAME eq python3.exe\" /FO CSV /NH" 2>/dev/null) | \
     grep -i "python" | \
     while IFS=',' read -r name pid rest; do
         # 提取PID，去除引号

@@ -5,7 +5,15 @@ set -e
 
 # 通用变量
 ENV_NAME="bug-knowledge"
-PYTHON_CMD="python"
+# 智能检测可用的Python命令
+if command -v python3 &> /dev/null; then
+    PYTHON_CMD="python3"
+elif command -v python &> /dev/null; then
+    PYTHON_CMD="python"
+else
+    echo "Error: Neither python3 nor python command found"
+    exit 1
+fi
 PYTHON_MIN_VERSION="3.8"
 
 # 判断操作系统类型

@@ -6,6 +6,16 @@ set -e
 # 通用变量
 ENV_NAME="bug-knowledge"
 
+# 检测Python命令
+if command -v python3 &> /dev/null; then
+    PYTHON_CMD="python3"
+elif command -v python &> /dev/null; then
+    PYTHON_CMD="python"
+else
+    echo "Error: Neither python3 nor python command found"
+    exit 1
+fi
+
 # 定义帮助信息
 show_help() {
     echo "Bug知识库系统启动脚本"
@@ -97,12 +107,12 @@ export PYTHON_ENV=$ENV
 if [ -n "$SCHEDULE" ]; then
     # 如果启用了计划任务，且没有指定interval，则使用hour和minute
     if [[ "$@" != *"--interval"* ]]; then
-        CMD="python -m src --mode $MODE --host $HOST --port $PORT $SCHEDULE --hour $HOUR --minute $MINUTE"
+        CMD="$PYTHON_CMD -m src --mode $MODE --host $HOST --port $PORT $SCHEDULE --hour $HOUR --minute $MINUTE"
     else
-        CMD="python -m src --mode $MODE --host $HOST --port $PORT $SCHEDULE --interval $INTERVAL"
+        CMD="$PYTHON_CMD -m src --mode $MODE --host $HOST --port $PORT $SCHEDULE --interval $INTERVAL"
     fi
 else
-    CMD="python -m src --mode $MODE --host $HOST --port $PORT"
+    CMD="$PYTHON_CMD -m src --mode $MODE --host $HOST --port $PORT"
 fi
 
 # 执行命令
