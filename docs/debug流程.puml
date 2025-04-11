@@ -1,0 +1,77 @@
+@startuml
+actor Developer as dev
+participant "用户环境" as user
+participant "调试工具" as debugger
+participant "代码库" as code
+participant "测试套件" as tests
+participant "知识库" as kb
+
+group 1. 重现问题 [Reproduce the Bug]
+dev -> user: 收集环境信息/问题详情/错误日志
+dev -> dev: 创建最小化重现环境
+dev -> user: 跨环境测试验证
+user --> dev: 稳定重现反馈
+end
+note left
+环境信息: 运行时环境、操作系统、网络环境等
+问题详情: 问题描述、可复现性、重现步骤、期望行为、实际行为
+end note
+
+group 2. 理解问题 [Understand the Problem]
+dev -> user: 分析错误信息/堆栈跟踪
+user --> dev: 错误详情
+dev -> code: 审查相关代码逻辑
+code --> dev: 代码上下文
+dev -> dev: 生成假设原因列表
+end
+note left
+代码及其上下文：问题代码、文件路径、行号范围、
+模块依赖关系、编程语言、diff格式的变更、项目依赖
+end note
+
+group 3. 缩小范围 [Narrow Down Scope]
+loop 二分法排查
+dev -> code: 注释/还原部分代码
+code --> dev: 行为变化反馈
+end
+
+dev -> debugger: 添加日志/断点
+debugger --> dev: 变量状态追踪
+
+alt 复杂情况
+dev -> code: 查看commit记录
+dev -> code: 进行版本DIFF分析
+code --> dev: 差异化信息反馈
+dev -> kb: 查阅历史相似案例
+kb --> dev: 解决方案参考
+end
+end
+
+group 4. 验证假设 [Verify Hypotheses]
+loop 假设验证循环
+dev -> code: 修改实验性代码
+code --> tests: 执行测试验证
+tests --> dev: 测试结果反馈
+end
+end
+
+group 5. 修复问题 [Fix the Bug]
+dev -> code: 应用最小化修复
+code --> tests: 执行回归测试
+tests --> dev: 通过验证
+dev -> code: 添加修复注释
+end
+
+group 6. 预防机制 [Prevent Future Issues]
+dev -> code: 重构代码结构
+dev -> tests: 添加单元测试
+dev -> kb: 记录根因分析
+kb --> 团队: 知识共享
+end
+
+group 7. 经验沉淀 [Knowledge Preservation]
+dev -> kb: 归档高频问题案例
+团队 -> code: 定期代码审查
+user --> kb: 线上问题闭环反馈
+end
+@enduml
