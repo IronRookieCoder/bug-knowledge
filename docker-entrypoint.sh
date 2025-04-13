@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# 激活conda环境
-source ~/.bashrc
+# 激活虚拟环境
+source /app/venv/bin/activate
 
 # 设置默认参数
 MODE=${MODE:-"web"}
