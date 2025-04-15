@@ -171,7 +171,7 @@
       resultsDiv.innerHTML = "";
 
       try {
-        const response = await fetch("/api/bugs/search", {
+        const response = await fetch("/bug-knowledge/api/bugs/search", {
           method: "POST",
           body: formData,
         });
