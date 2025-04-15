@@ -1,0 +1,14 @@
+[Unit]
+Description=Bug知识库系统
+After=network.target
+
+[Service]
+User=www-data
+WorkingDirectory=/var/ui/bug-knowledge
+ExecStart=/usr/bin/python3 -m src --mode=web
+Restart=always
+RestartSec=10
+Environment=BUG_KNOWLEDGE_TEMP_DIR=/var/ui/bug-knowledge/data/temp
+
+[Install]
+WantedBy=multi-user.target 

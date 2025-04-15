@@ -40,7 +40,7 @@ def create_web_app() -> FastAPI:
     # 配置模板和静态文件
     templates = Jinja2Templates(directory=config.get("WEB")["templates_dir"])
     app.mount(
-        "/bug-knowledge/static", StaticFiles(directory=config.get("WEB")["static_dir"]), name="static"
+        "/static", StaticFiles(directory=config.get("WEB")["static_dir"]), name="static"
     )
 
     @app.get("/", response_class=HTMLResponse)
