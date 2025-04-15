@@ -72,7 +72,7 @@ class DataIntegrator:
 
             # 使用现有的 BugReport，只更新代码相关字段，确保类型正确
             try:
-                bug_report.file_paths = [str(s.file_path) for s in code_snippets if hasattr(s, 'file_path') and s.file_path]
+                bug_report.file_paths = list(set([str(s.file_path) for s in code_snippets if hasattr(s, 'file_path') and s.file_path]))
             except Exception as e:
                 logger.error(f"设置file_paths时发生错误: {str(e)}")
                 bug_report.file_paths = []
