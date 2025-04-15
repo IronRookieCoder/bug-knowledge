@@ -83,7 +83,7 @@ def main():
     )
     parser.add_argument("--host", help="Web服务器主机地址")
     parser.add_argument("--port", type=int, help="Web服务器端口")
-    parser.add_argument("--schedule", action="store_true", help="启用计划运行模式")
+    parser.add_argument("--schedule", action="store_true", default=True, help="启用计划运行模式")
     parser.add_argument(
         "--schedule-type",
         choices=["daily", "monthly", "interval"],

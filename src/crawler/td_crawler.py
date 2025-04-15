@@ -178,7 +178,7 @@ class TDCrawler:
                 summary=self._safe_str(fields.get("summary", "")),
                 severity=severity,
                 is_reappear=is_reappear,
-                description=desc_content,
+                description=self._clean_html_tags(desc_content),
                 test_steps=self._parse_desc_section(desc_content, "测试步骤"),
                 expected_result=self._parse_desc_section(desc_content, "期望结果"),
                 actual_result=self._parse_desc_section(desc_content, "实际结果"),
@@ -276,3 +276,15 @@ class TDCrawler:
             return str(value)
         except Exception:
             return ""
+
+    def _clean_html_tags(self, text: str) -> str:
+        """清理文本中的HTML标签"""
+        if not isinstance(text, str):
+            return ""
+        # 移除HTML标签
+        text = re.sub(r'<[^>]+>', '', text)
+        # 替换多个换行符为单个换行符
+        text = re.sub(r'\n+', '\n', text)
+        # 替换多个空格为单个空格
+        text = re.sub(r'\s+', ' ', text)
+        return text.strip()

@@ -36,7 +36,7 @@ show_help() {
 MODE=${MODE:-"web"}
 HOST=${HOST:-"127.0.0.1"}
 PORT=${PORT:-"8010"}
-SCHEDULE=${SCHEDULE:-""}
+SCHEDULE=${SCHEDULE:-"--schedule"}
 HOUR=${HOUR:-"2"}
 MINUTE=${MINUTE:-"0"}
 INTERVAL=${INTERVAL:-"24"}
