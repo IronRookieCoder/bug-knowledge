@@ -193,6 +193,11 @@ def main():
                     f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 计划任务执行失败: {str(e)}"
                 )
 
+        # 先执行一次任务
+        logger.info("正在执行首次任务...")
+        run_task()
+        logger.info("首次任务执行完成")
+
         if args.schedule_type == "interval":
             interval_hours = args.interval
             logger.info(f"任务将按每 {interval_hours} 小时执行一次。")
