@@ -35,12 +35,12 @@ def find_available_port(start_port: int = 8000, max_port: int = 8999) -> int:
 
 def create_web_app() -> FastAPI:
     """创建Web应用实例"""
-    app = FastAPI(title="BUG知识库系统")
+    app = FastAPI(title="BUG知识库系统", root_path="/bug-knowledge")
 
     # 配置模板和静态文件
     templates = Jinja2Templates(directory=config.get("WEB")["templates_dir"])
     app.mount(
-        "/static", StaticFiles(directory=config.get("WEB")["static_dir"]), name="static"
+        "/bug-knowledge/static", StaticFiles(directory=config.get("WEB")["static_dir"]), name="static"
     )
 
     @app.get("/", response_class=HTMLResponse)
